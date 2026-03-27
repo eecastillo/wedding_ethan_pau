@@ -26,8 +26,13 @@ st.markdown("""
 }
 
 .main-title {
-    font-family: 'Playfair Display', serif; font-size: 4.5rem; color: #2D2D2D;
-    text-align: center; font-weight: 400; margin-top: 0; margin-bottom: 25px;
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2.5rem, 12vw, 4.5rem); /* Fluid typography: Min 2.5rem, Preferred 12vw, Max 4.5rem */
+    color: #2D2D2D;
+    text-align: center;
+    font-weight: 400;
+    margin-top: 0;
+    margin-bottom: 25px;
 }
 
 .custom-divider { display: flex; align-items: center; justify-content: center; margin-bottom: 40px; }
