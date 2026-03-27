@@ -11,7 +11,7 @@ if 'selected_guest_idx' not in st.session_state:
     st.session_state.selected_guest_idx = None
 
 def clear_selection():
-    """Clears the selected guest if the user modifies the search box"""
+    """Clears the form and goes back to the list if the search box is modified"""
     st.session_state.selected_guest_idx = None
 
 # --- CSS INJECTION ---
@@ -133,48 +133,54 @@ client = gspread.authorize(creds)
 
 # Open the Sheet 
 sheet = client.open("invitados").sheet1
-data = sheet.get_all_records()
+# --- THE MAGIC CACHE ---
+# This tells Streamlit to keep the data in memory for 600 seconds (10 minutes)
+@st.cache_data(ttl=600) 
+def load_data():
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 # --- MOCK DATA ---
 data_mock = [
-    # Group 1: Couple (Main Guest + 1 Companion -> NO_PERSONAS = 1)
+    # Group 1: Couple (Main Guest + 1 Companion -> # DE PERSONAS = 1)
     {
-        "NOMBRE": "Carlos", "APELLIDO": "García", "NO_PERSONAS": 1, 
+        "NOMBRE": "Carlos", "APELLIDO": "García", "# DE PERSONAS": 1, 
         "CELULAR": "5551234567", "ESTATUS": "Pendiente_de_Confirmar", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 1
     },
     {
-        "NOMBRE": "María", "APELLIDO": "López", "NO_PERSONAS": 0, 
+        "NOMBRE": "María", "APELLIDO": "López", "# DE PERSONAS": 0, 
         "CELULAR": "", "ESTATUS": "", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 1
     },
     
-    # Group 2: Family (Main Guest + 2 Companions -> NO_PERSONAS = 2)
+    # Group 2: Family (Main Guest + 2 Companions -> # DE PERSONAS = 2)
     {
-        "NOMBRE": "Roberto", "APELLIDO": "Martínez", "NO_PERSONAS": 2, 
+        "NOMBRE": "Roberto", "APELLIDO": "Martínez", "# DE PERSONAS": 2, 
         "CELULAR": "5559876543", "ESTATUS": "Mensaje_enviado", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
     },
     {
-        "NOMBRE": "Ana", "APELLIDO": "Martínez", "NO_PERSONAS": 0, 
+        "NOMBRE": "Ana", "APELLIDO": "Martínez", "# DE PERSONAS": 0, 
         "CELULAR": "", "ESTATUS": "", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
     },
     {
-        "NOMBRE": "Luis", "APELLIDO": "Martínez", "NO_PERSONAS": 0, 
+        "NOMBRE": "Luis", "APELLIDO": "Martínez", "# DE PERSONAS": 0, 
         "CELULAR": "", "ESTATUS": "", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
     },
     
-    # Group 3: Single Guest (Main Guest + 0 Companions -> NO_PERSONAS = 0)
+    # Group 3: Single Guest (Main Guest + 0 Companions -> # DE PERSONAS = 0)
     {
-        "NOMBRE": "Sofia", "APELLIDO": "Ramírez", "NO_PERSONAS": 0, 
+        "NOMBRE": "Sofia", "APELLIDO": "Ramírez", "# DE PERSONAS": 0, 
         "CELULAR": "5556667777", "ESTATUS": "Pendiente_de_Confirmar", 
         "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 3
     }
 ]
-df = pd.DataFrame(data)
-df['FULL_NAME'] = df['NOMBRE'].astype(str).str.strip() + " " + df['APELLIDO'].astype(str).str.strip()
+# Call the cached function instead of hitting the API directly
+df = load_data()
+df['FULL_NAME'] = df['NOMBRE(S)'].astype(str).str.strip() + " " + df['APELLIDO(S)'].astype(str).str.strip()
 
 
 # ==========================================
@@ -182,10 +188,23 @@ df['FULL_NAME'] = df['NOMBRE'].astype(str).str.strip() + " " + df['APELLIDO'].as
 # ==========================================
 
 # Search bar is always visible. If changed, it clears the selected guest (on_change callback).
-search_term = st.text_input("Buscar", label_visibility="collapsed", placeholder="🔍 Ingresa tu nombre o apellido...", on_change=clear_selection)
+search_term = st.text_input(
+    "Buscar", 
+    label_visibility="collapsed", 
+    placeholder="🔍 Ingresa tu nombre o apellido...", 
+    on_change=clear_selection  # <-- This is the magic trigger!
+)
 
 if search_term and st.session_state.selected_guest_idx is None:
-    match_condition = df['FULL_NAME'].str.lower().str.contains(search_term.lower().strip(), na=False)
+    
+    # 1. Ensure the column is numeric so we can do math on it. 
+    df['# DE PERSONAS'] = pd.to_numeric(df['# DE PERSONAS'], errors='coerce').fillna(0)
+    
+    # 2. Filter by name AND ensure they have an invitation size greater than 0
+    match_condition = (
+        df['FULL_NAME'].str.lower().str.contains(search_term.lower().strip(), na=False) & 
+        (df['# DE PERSONAS'] > 0)
+    )
     matches = df[match_condition]
     
     if not matches.empty:
@@ -200,18 +219,18 @@ if search_term and st.session_state.selected_guest_idx is None:
 
 # THE FORM CARD
 elif st.session_state.selected_guest_idx is not None:
-    
+
     matched_idx = st.session_state.selected_guest_idx
     matched_row = df.loc[matched_idx]
     main_guest_name = matched_row['FULL_NAME']
     
     try:
-        n = int(matched_row['NO_PERSONAS'])
+        n = int(matched_row['# DE PERSONAS'])
     except ValueError:
         n = 0
         
-    invitados_options = list(range(1, n + 2)) 
-    veganos_options = list(range(0, n + 2))   
+    invitados_options = list(range(1, n + 1)) 
+    veganos_options = list(range(0, n + 1))   
     
     with st.form("confirmation_form"):
         # 1. Main Guest Info
@@ -221,11 +240,11 @@ elif st.session_state.selected_guest_idx is not None:
         # 2. Companions logic
         if n > 0:
             st.markdown('<div class="guest-role">ACOMPAÑANTES</div>', unsafe_allow_html=True)
-            max_idx = min(matched_idx + n, len(df) - 1)
+            max_idx = min(matched_idx + n-1, len(df) - 1)
             
             pills_html = '<div class="companion-container">'
             for i in range(matched_idx + 1, max_idx + 1):
-                companion_name = f"{df.loc[i, 'NOMBRE']} {df.loc[i, 'APELLIDO']}".strip()
+                companion_name = f"{df.loc[i, 'NOMBRE(S)']} {df.loc[i, 'APELLIDO(S)']}".strip()
                 pills_html += f'<div class="companion-pill">{companion_name}</div>'
             pills_html += '</div>'
             st.markdown(pills_html, unsafe_allow_html=True)
@@ -259,6 +278,21 @@ elif st.session_state.selected_guest_idx is not None:
             if confirmados is None:
                 st.error("Por favor selecciona el número de invitados.")
             else:
+                # Row index in Google Sheets is matched_idx + 2 
+                # (+1 because pandas is 0-indexed, +1 because Sheets has a header row)
+                gsheet_row = int(matched_idx) + 2
+                
+                # Column mapping based on your structure (1-indexed for gspread):
+                # Col 5 = ESTATUS
+                # Col 6 = PERSONAS_CONFIRMADAS
+                # Col 7 = PLATILLOS_VEGANOS
+                
+                sheet.update_cell(gsheet_row, 5, "Confirmado_web")
+                sheet.update_cell(gsheet_row, 6, confirmados)
+                sheet.update_cell(gsheet_row, 7, platillos_veganos)
+
+
+                load_data.clear()
                 st.success("¡Tu confirmación ha sido guardada exitosamente!")
                 st.balloons()
 
