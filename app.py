@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 
 # Page Config
 st.set_page_config(page_title="Confirmación de Asistencia", page_icon="💍", layout="centered")
@@ -122,8 +124,19 @@ st.markdown('<div class="pre-title">ESTÁS INVITADO</div>', unsafe_allow_html=Tr
 st.markdown('<div class="main-title">Confirmación</div>', unsafe_allow_html=True)
 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
 
+# --- REAL DATA ---
+# Google Sheets Setup
+scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+# Connect using Streamlit's secure secrets management
+creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+client = gspread.authorize(creds)
+
+# Open the Sheet 
+sheet = client.open("invitados").sheet1
+data = sheet.get_all_records()
+
 # --- MOCK DATA ---
-data = [
+data_mock = [
     # Group 1: Couple (Main Guest + 1 Companion -> NO_PERSONAS = 1)
     {
         "NOMBRE": "Carlos", "APELLIDO": "García", "NO_PERSONAS": 1, 
