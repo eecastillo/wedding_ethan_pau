@@ -17,6 +17,21 @@ def clear_selection():
 # --- CSS INJECTION ---
 st.markdown("""
 <style>
+
+/* --- HIDE STREAMLIT DEFAULT UI --- */
+[data-testid="stHeader"] {
+    display: none;
+}
+#MainMenu {
+    visibility: hidden;
+}
+footer {
+    visibility: hidden;
+}
+.stAppDeployButton {
+    display: none;
+}
+            
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
 .stApp { background-color: #FCFBF9; }
