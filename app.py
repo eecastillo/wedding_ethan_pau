@@ -283,7 +283,7 @@ else:
             elif attendance == "No, lamentablemente no podremos":
                 st.write("") 
                 st.write("") 
-                submit_cancel = st.button("🚫 Confirmar mi cancelación", key="submit_no", use_container_width=True, type="primary")
+                submit_cancel = st.button("✗ Confirmar mi cancelación", key="submit_no", use_container_width=True, type="primary")
                 
                 if submit_cancel:
                     gsheet_row = int(matched_idx) + 2
