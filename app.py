@@ -22,16 +22,6 @@ def clear_selection():
 st.markdown("""
 <style>
 
-/* --- HIDE STREAMLIT DEFAULT UI --- */
-[data-testid="stHeader"] { display: none; }
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-.stAppDeployButton { display: none; }
-            
-/* --- HIDE STREAMLIT CLOUD UI ELEMENTS --- */
-[data-testid="stToolbar"] { visibility: hidden !important; }
-.viewerBadge_container { display: none !important; }
-.viewerBadge_link { display: none !important; }
             
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
