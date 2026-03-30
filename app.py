@@ -154,20 +154,43 @@ if not guest_id:
     st.markdown('<div class="error-text">¡Hola! Para confirmar tu asistencia, por favor utiliza el enlace personalizado que te enviamos por mensaje. 🤍</div>', unsafe_allow_html=True)
 
 else:
-    # 2. Check if the ID exists in the DataFrame
-    if 'ID_UNICO' not in df.columns:
-        st.error("Error: La columna 'ID_UNICO' no existe en Google Sheets.")
-        st.stop()
-        
-    # Cast both to string to ensure a perfect match even if IDs look like numbers
-    match_condition = df['ID_UNICO'].astype(str) == str(guest_id)
-    matches = df[match_condition]
+    # 3. We have a match! Load their specific data.
+    matched_idx = matches.index[0]
+    matched_row = matches.iloc[0]
+    main_guest_name = matched_row['FULL_NAME']
     
-    if matches.empty:
-        # The ID is in the URL, but it doesn't match anyone in the database
-        st.markdown('<div class="error-text">No pudimos encontrar tu invitación. Por favor verifica que el enlace sea correcto o comunícate con nosotros.</div>', unsafe_allow_html=True)
-        
+    # --- NEW: CHECK ESTATUS COLUMN ---
+    # We check if the guest has already responded
+    current_status = str(matched_row.get('ESTATUS', '')).strip()
+
+    if "Confirmado" in current_status:
+        with st.container(border=True):
+            st.markdown(f'<div class="guest-name-large" style="margin-bottom:10px;">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+            st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
+            st.markdown("""
+                <div class="error-text" style="color: #4A4A4A; font-size: 1.2rem; font-family: 'Playfair Display', serif;">
+                    Tu asistencia ya ha sido confirmada.<br><br>
+                    <b>¡Gracias por confirmar! ✨</b><br>
+                    Estamos muy emocionados y nos encantará compartir este día tan especial contigo.
+                </div>
+            """, unsafe_allow_html=True)
+            st.write("") # Spacer
+
+    elif "Cancelado" in current_status:
+        with st.container(border=True):
+            st.markdown(f'<div class="guest-name-large" style="margin-bottom:10px;">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+            st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
+            st.markdown("""
+                <div class="error-text" style="color: #4A4A4A; font-size: 1.1rem; font-family: 'Playfair Display', serif;">
+                    Hemos recibido tu respuesta.<br><br>
+                    <b>Gracias por avisarnos. 🤍</b><br>
+                    Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber. ¡Esperamos vernos pronto en otra ocasión!
+                </div>
+            """, unsafe_allow_html=True)
+            st.write("") # Spacer
+
     else:
+        # --- SHOW THE ORIGINAL RSVP FORM ---
         # 3. We have a match! Load their specific data.
         matched_idx = matches.index[0]
         matched_row = matches.iloc[0]
