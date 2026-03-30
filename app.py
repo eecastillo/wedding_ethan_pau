@@ -10,43 +10,28 @@ st.set_page_config(page_title="Confirmación de Asistencia", page_icon="💍", l
 # --- INITIALIZE SESSION STATE ---
 if 'selected_guest_idx' not in st.session_state:
     st.session_state.selected_guest_idx = None
+if 'attendance_selection' not in st.session_state:
+    st.session_state.attendance_selection = None
 
 def clear_selection():
-    """Clears the form and goes back to the list if the search box is modified"""
+    """Clears the selection and goes back to the list if the search box is modified"""
     st.session_state.selected_guest_idx = None
+    st.session_state.attendance_selection = None
 
 # --- CSS INJECTION ---
 st.markdown("""
 <style>
 
 /* --- HIDE STREAMLIT DEFAULT UI --- */
-[data-testid="stHeader"] {
-    display: none;
-}
-#MainMenu {
-    visibility: hidden;
-}
-footer {
-    visibility: hidden;
-}
-.stAppDeployButton {
-    display: none;
-}
+[data-testid="stHeader"] { display: none; }
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+.stAppDeployButton { display: none; }
             
 /* --- HIDE STREAMLIT CLOUD UI ELEMENTS --- */
-
-/* Hides the top-right toolbar containing the profile avatar and menu */
-[data-testid="stToolbar"] {
-    visibility: hidden !important;
-}
-
-/* Hides the floating "Hosted with Streamlit" badge at the bottom */
-.viewerBadge_container {
-    display: none !important;
-}
-.viewerBadge_link {
-    display: none !important;
-}
+[data-testid="stToolbar"] { visibility: hidden !important; }
+.viewerBadge_container { display: none !important; }
+.viewerBadge_link { display: none !important; }
             
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
@@ -60,12 +45,8 @@ footer {
 
 .main-title {
     font-family: 'Playfair Display', serif;
-    font-size: clamp(2.5rem, 12vw, 4.5rem); /* Fluid typography: Min 2.5rem, Preferred 12vw, Max 4.5rem */
-    color: #2D2D2D;
-    text-align: center;
-    font-weight: 400;
-    margin-top: 0;
-    margin-bottom: 25px;
+    font-size: clamp(2.5rem, 12vw, 4.5rem); 
+    color: #2D2D2D; text-align: center; font-weight: 400; margin-top: 0; margin-bottom: 25px;
 }
 
 .custom-divider { display: flex; align-items: center; justify-content: center; margin-bottom: 40px; }
@@ -84,7 +65,7 @@ div[data-baseweb="input"] { background-color: white; border-radius: 8px; border:
     color: #9E9E9E; text-align: center; margin-top: 40px; margin-bottom: 20px; text-transform: uppercase;
 }
 
-/* Guest Cards */
+/* Guest Cards (Search Results) */
 div[data-testid="stButton"] { display: flex; justify-content: center; width: 100%; }
 div[data-testid="stButton"] button[kind="secondary"] {
     width: 100%; background-color: #FFFFFF; border: 1px solid #E0E0E0;
@@ -96,15 +77,16 @@ div[data-testid="stButton"] button[kind="secondary"] p {
     font-family: 'Playfair Display', serif; font-size: 1.25rem; color: #4A4A4A; margin: 0; width: 100%; text-align: left;
 }
 
-/* --- THE FORM CARD STYLING --- */
-[data-testid="stForm"] {
+/* --- THE MAIN CONTAINER CARD STYLING --- */
+/* Replaces the old stForm targeting */
+[data-testid="stVerticalBlockBorderWrapper"] {
     background-color: #FFFFFF;
     border: 1px solid #EAEAEA;
     border-radius: 15px;
     padding: 40px 30px;
     box-shadow: 0px 4px 15px rgba(0,0,0,0.03);
     max-width: 80%;
-    margin: 20px auto 0 auto; /* Centers the form block */
+    margin: 20px auto 0 auto; 
 }
 
 .guest-role {
@@ -132,17 +114,30 @@ div[data-testid="stButton"] button[kind="secondary"] p {
     margin-bottom: 5px; display: flex; align-items: center; gap: 8px; font-weight: 400;
 }
 
-/* Styled Confirm Button */
-[data-testid="stFormSubmitButton"] { display: flex; justify-content: center; margin-top: 30px; }
-[data-testid="stFormSubmitButton"] button {
-    background-color: #A89F91 !important; color: white !important; border: none !important;
-    border-radius: 8px !important; padding: 12px 50px !important;
-    font-family: 'Montserrat', sans-serif !important; font-weight: 500 !important;
-    font-size: 1rem !important; width: auto !important; transition: background-color 0.3s;
+/* Style for the active/selected buttons (Primary) */
+div[data-testid="stButton"] button[kind="primary"] {
+    width: 100% !important;
+    background-color: #A89F91 !important;
+    color: white !important;
+    border: 1px solid #A89F91 !important; /* 1px border to match the secondary button */
+    border-radius: 10px !important;
+    padding: 18px 25px !important; /* Exactly matches the secondary button padding */
+    margin-bottom: 5px !important; /* Exactly matches the secondary button margin */
+    font-family: 'Montserrat', sans-serif !important;
+    transition: background-color 0.3s;
+    box-shadow: 0px 2px 4px rgba(0,0,0,0.02) !important;
 }
-[data-testid="stFormSubmitButton"] button:hover { background-color: #8C847A !important; }
-[data-testid="stFormSubmitButton"] button p { color: white !important; }
 
+div[data-testid="stButton"] button[kind="primary"]:hover {
+    background-color: #8C847A !important;
+    border-color: #8C847A !important;
+}
+
+div[data-testid="stButton"] button[kind="primary"] p { 
+    color: white !important; 
+    font-weight: 500 !important; 
+    font-size: 1.25rem !important; /* Matches the text size of the secondary button */
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,80 +153,34 @@ st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_
 # --- REAL DATA ---
 # Google Sheets Setup
 scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-# Connect using Streamlit's secure secrets management
 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
 client = gspread.authorize(creds)
-
-# Open the Sheet 
 sheet = client.open("invitados").sheet1
+
 # --- THE MAGIC CACHE ---
-# This tells Streamlit to keep the data in memory for 600 seconds (10 minutes)
 @st.cache_data(ttl=600) 
 def load_data():
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
-# --- MOCK DATA ---
-data_mock = [
-    # Group 1: Couple (Main Guest + 1 Companion -> # DE PERSONAS = 1)
-    {
-        "NOMBRE": "Carlos", "APELLIDO": "García", "# DE PERSONAS": 1, 
-        "CELULAR": "5551234567", "ESTATUS": "Pendiente_de_Confirmar", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 1
-    },
-    {
-        "NOMBRE": "María", "APELLIDO": "López", "# DE PERSONAS": 0, 
-        "CELULAR": "", "ESTATUS": "", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 1
-    },
-    
-    # Group 2: Family (Main Guest + 2 Companions -> # DE PERSONAS = 2)
-    {
-        "NOMBRE": "Roberto", "APELLIDO": "Martínez", "# DE PERSONAS": 2, 
-        "CELULAR": "5559876543", "ESTATUS": "Mensaje_enviado", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
-    },
-    {
-        "NOMBRE": "Ana", "APELLIDO": "Martínez", "# DE PERSONAS": 0, 
-        "CELULAR": "", "ESTATUS": "", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
-    },
-    {
-        "NOMBRE": "Luis", "APELLIDO": "Martínez", "# DE PERSONAS": 0, 
-        "CELULAR": "", "ESTATUS": "", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 2
-    },
-    
-    # Group 3: Single Guest (Main Guest + 0 Companions -> # DE PERSONAS = 0)
-    {
-        "NOMBRE": "Sofia", "APELLIDO": "Ramírez", "# DE PERSONAS": 0, 
-        "CELULAR": "5556667777", "ESTATUS": "Pendiente_de_Confirmar", 
-        "PERSONAS_CONFIRMADAS": 0, "PLATILLOS_VEGANOS": 0, "COMENTARIOS": "", "NO_MESA": 3
-    }
-]
-# Call the cached function instead of hitting the API directly
 df = load_data()
 df['FULL_NAME'] = df['NOMBRE(S)'].astype(str).str.strip() + " " + df['APELLIDO(S)'].astype(str).str.strip()
-
 
 # ==========================================
 # APP LOGIC
 # ==========================================
 
-# Search bar is always visible. If changed, it clears the selected guest (on_change callback).
+# Search bar is always visible.
 search_term = st.text_input(
     "Buscar", 
     label_visibility="collapsed", 
     placeholder="🔍 Ingresa tu nombre o apellido...", 
-    on_change=clear_selection  # <-- This is the magic trigger!
+    on_change=clear_selection
 )
 
 if search_term and st.session_state.selected_guest_idx is None:
-    
-    # 1. Ensure the column is numeric so we can do math on it. 
     df['# DE PERSONAS'] = pd.to_numeric(df['# DE PERSONAS'], errors='coerce').fillna(0)
     
-    # 2. Filter by name AND ensure they have an invitation size greater than 0
     match_condition = (
         df['FULL_NAME'].str.lower().str.contains(search_term.lower().strip(), na=False) & 
         (df['# DE PERSONAS'] > 0)
@@ -240,17 +189,16 @@ if search_term and st.session_state.selected_guest_idx is None:
     
     if not matches.empty:
         st.markdown('<div class="select-name-title">SELECCIONA TU NOMBRE</div>', unsafe_allow_html=True)
-        
         for idx, row in matches.iterrows():
             if st.button(row['FULL_NAME'], key=f"btn_{idx}", use_container_width=True):
                 st.session_state.selected_guest_idx = idx
+                st.session_state.attendance_selection = None
                 st.rerun()
     else:
         st.markdown('<div class="error-text">No se encontraron invitados con ese nombre.</div>', unsafe_allow_html=True)
 
-# THE FORM CARD
+# THE MAIN CONTAINER CARD
 elif st.session_state.selected_guest_idx is not None:
-
     matched_idx = st.session_state.selected_guest_idx
     matched_row = df.loc[matched_idx]
     main_guest_name = matched_row['FULL_NAME']
@@ -263,13 +211,14 @@ elif st.session_state.selected_guest_idx is not None:
     invitados_options = list(range(1, n + 1)) 
     veganos_options = list(range(0, n + 1))   
     
-    with st.form("confirmation_form"):
+    # Using a styled container instead of a restrictive form
+    with st.container(border=True):
         # 1. Main Guest Info
         st.markdown('<div class="guest-role">INVITADO PRINCIPAL</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="guest-name-large">{main_guest_name}</div>', unsafe_allow_html=True)
         
         # 2. Companions logic
-        if n > 0:
+        if n > 1:
             st.markdown('<div class="guest-role">ACOMPAÑANTES</div>', unsafe_allow_html=True)
             max_idx = min(matched_idx + n-1, len(df) - 1)
             
@@ -280,62 +229,103 @@ elif st.session_state.selected_guest_idx is not None:
             pills_html += '</div>'
             st.markdown(pills_html, unsafe_allow_html=True)
             
-        # 3. Inner Form Divider
+        # 3. Inner Divider
         st.markdown('<div class="custom-divider" style="margin-bottom: 25px;"><div class="dot"></div></div>', unsafe_allow_html=True)
-        
-        # 4. Inputs with Custom Labels & Placeholders
-        st.markdown(f'<div class="form-label">{svg_people} Invitados Confirmados</div>', unsafe_allow_html=True)
-        confirmados = st.selectbox(
-            "Invitados Confirmados", 
-            options=invitados_options, 
-            index=None, # index=None enables the placeholder
-            placeholder="Seleccionar cantidad", 
-            label_visibility="collapsed"
-        )
-        
-        st.markdown(f'<div class="form-label">{svg_leaf} Platillos veganos</div>', unsafe_allow_html=True)
-        platillos_veganos = st.selectbox(
-            "Platillos veganos", 
-            options=veganos_options, 
-            index=None, 
-            placeholder="Seleccionar cantidad", 
-            label_visibility="collapsed"
-        )
-        
-        # 5. Styled Confirm Button
-        submit = st.form_submit_button("✓ Confirmar")
-        
-        if submit:
-            if confirmados is None:
-                st.error("Por favor selecciona el número de invitados.")
 
-            elif platillos_veganos is not None and platillos_veganos > confirmados:
-                st.error(f"Solo confirmaste {confirmados} asistente(s). El número de platillos veganos no puede ser mayor.")
+        # 4. Attendance Question
+        st.markdown('<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">¿Podrán acompañarnos?</div>', unsafe_allow_html=True)
 
-            else:
-                # Row index in Google Sheets is matched_idx + 2 
-                # (+1 because pandas is 0-indexed, +1 because Sheets has a header row)
+        # Callback to save the button click to session state
+        def set_attendance(status):
+            st.session_state.attendance_selection = status
+
+        # Use empty outer columns to push the buttons to the center
+        _, col1, col2, _ = st.columns([1, 4, 4, 1])
+
+        with col1:
+            is_yes = st.session_state.attendance_selection == "Sí, confirmamos"
+            st.button(
+                "✓ Sí, confirmamos",
+                type="primary" if is_yes else "secondary",
+                key="btn_yes",
+                on_click=set_attendance,
+                args=("Sí, confirmamos",),
+                use_container_width=True
+            )
+
+        with col2:
+            is_no = st.session_state.attendance_selection == "No, lamentablemente no podremos"
+            st.button(
+                "✗ No podremos",
+                type="primary" if is_no else "secondary",
+                key="btn_no",
+                on_click=set_attendance,
+                args=("No, lamentablemente no podremos",),
+                use_container_width=True
+            )
+
+        attendance = st.session_state.attendance_selection
+        
+        # 5. Conditional Inputs
+        confirmados = None
+        platillos_veganos = None
+        
+        if attendance == "Sí, confirmamos":
+            st.write("") 
+            st.write("") 
+            st.markdown(f'<div class="form-label">{svg_people} Invitados Confirmados</div>', unsafe_allow_html=True)
+            confirmados = st.selectbox(
+                "Invitados Confirmados", 
+                options=invitados_options, 
+                index=None, 
+                placeholder="Seleccionar cantidad", 
+                label_visibility="collapsed"
+            )
+            
+            st.markdown(f'<div class="form-label">{svg_leaf} Platillos veganos</div>', unsafe_allow_html=True)
+            platillos_veganos = st.selectbox(
+                "Platillos veganos", 
+                options=veganos_options, 
+                index=None, 
+                placeholder="Seleccionar cantidad", 
+                label_visibility="collapsed"
+            )
+
+            st.write("") 
+            
+            # 6. Styled Confirm Button (Standard button triggers update)
+            submit = st.button("✓ Confirmar mi asistencia", use_container_width=True, type="primary")
+            
+            if submit:
                 gsheet_row = int(matched_idx) + 2
                 
-                # Column mapping based on your structure (1-indexed for gspread):
-                # Col 5 = ESTATUS
-                # Col 6 = PERSONAS_CONFIRMADAS
-                # Col 7 = PLATILLOS_VEGANOS
+                if confirmados is None:
+                    st.error("Por favor selecciona el número de invitados.")
+                elif platillos_veganos is not None and platillos_veganos > confirmados:
+                    st.error(f"Solo confirmaste {confirmados} asistente(s). El número de platillos veganos no puede ser mayor.")
+                else:
+                    # Update Google Sheets
+                    sheet.update_cell(gsheet_row, 5, "Confirmado_web")
+                    sheet.update_cell(gsheet_row, 6, confirmados)
+                    sheet.update_cell(gsheet_row, 7, platillos_veganos)
+                    
+                    load_data.clear()
+                    st.success("¡Tu confirmación ha sido guardada exitosamente!")
+                    rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
+                    
+        elif attendance == "No, lamentablemente no podremos":
+            st.write("") 
+            st.write("") 
+            submit_cancel = st.button("✗ Confirmar mi cancelación", use_container_width=True, type="primary")
+            
+            if submit_cancel:
+                gsheet_row = int(matched_idx) + 2
+                sheet.update_cell(gsheet_row, 5, "Cancelado_web")
+                sheet.update_cell(gsheet_row, 6, 0)
+                sheet.update_cell(gsheet_row, 7, 0)
                 
-                sheet.update_cell(gsheet_row, 5, "Confirmado_web")
-                sheet.update_cell(gsheet_row, 6, confirmados)
-                sheet.update_cell(gsheet_row, 7, platillos_veganos)
-
-
                 load_data.clear()
-                st.success("¡Tu confirmación ha sido guardada exitosamente!")
-                #st.balloons()
-                rain(
-                    emoji="🕊️",
-                    font_size=40,
-                    falling_speed=5,
-                    animation_length=2, # How many seconds the animation lasts
-                )
+                st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
 
 # Custom Footer
 st.markdown('<div class="footer">Con amor, los novios ♥</div>', unsafe_allow_html=True)
