@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+from streamlit_extras.let_it_rain import rain
 
 # Page Config
 st.set_page_config(page_title="Confirmación de Asistencia", page_icon="💍", layout="centered")
@@ -307,6 +308,10 @@ elif st.session_state.selected_guest_idx is not None:
         if submit:
             if confirmados is None:
                 st.error("Por favor selecciona el número de invitados.")
+
+            elif platillos_veganos is not None and platillos_veganos > confirmados:
+                st.error(f"Solo confirmaste {confirmados} asistente(s). El número de platillos veganos no puede ser mayor.")
+
             else:
                 # Row index in Google Sheets is matched_idx + 2 
                 # (+1 because pandas is 0-indexed, +1 because Sheets has a header row)
@@ -324,7 +329,13 @@ elif st.session_state.selected_guest_idx is not None:
 
                 load_data.clear()
                 st.success("¡Tu confirmación ha sido guardada exitosamente!")
-                st.balloons()
+                #st.balloons()
+                rain(
+                    emoji="🕊️",
+                    font_size=40,
+                    falling_speed=5,
+                    animation_length=2, # How many seconds the animation lasts
+                )
 
 # Custom Footer
 st.markdown('<div class="footer">Con amor, los novios ♥</div>', unsafe_allow_html=True)
