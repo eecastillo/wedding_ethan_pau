@@ -32,6 +32,21 @@ footer {
     display: none;
 }
             
+/* --- HIDE STREAMLIT CLOUD UI ELEMENTS --- */
+
+/* Hides the top-right toolbar containing the profile avatar and menu */
+[data-testid="stToolbar"] {
+    visibility: hidden !important;
+}
+
+/* Hides the floating "Hosted with Streamlit" badge at the bottom */
+.viewerBadge_container {
+    display: none !important;
+}
+.viewerBadge_link {
+    display: none !important;
+}
+            
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
 .stApp { background-color: #FCFBF9; }
