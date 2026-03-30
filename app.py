@@ -4,6 +4,20 @@ import gspread
 from google.oauth2.service_account import Credentials
 from streamlit_extras.let_it_rain import rain
 
+
+def format_names_spanish(names):
+    """Formats a list of names into a Spanish string: 'A, B y C' or 'A e Isabel'"""
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    
+    # Logic for 'y' vs 'e' (if next name starts with I or Hi)
+    last_name = names[-1]
+    conjunction = "e" if last_name.lower().startswith(('i', 'hi')) and not last_name.lower().startswith(('hia', 'hie', 'hio', 'hiu')) else "y"
+    
+    return ", ".join(names[:-1]) + f" {conjunction} " + last_name
+
 # Page Config
 st.set_page_config(page_title="Confirmación de Asistencia", page_icon="💍", layout="centered")
 
@@ -164,32 +178,62 @@ else:
         matched_row = matches.iloc[0]
         main_guest_name = matched_row['FULL_NAME']
         
-        # --- NEW: CHECK ESTATUS COLUMN ---
-        # We check if the guest has already responded
+        # --- DEFINE N BEFORE ANYTHING ELSE ---
+        try:
+            n = int(matched_row['# DE PERSONAS'])
+        except (ValueError, TypeError):
+            n = 1 # Default to at least the main guest if data is missing
+            
+        # --- PREPARE COMPANION NAMES ---
+        companion_names = []
+        if n > 1:
+            # We look at the rows immediately following the main guest in the sheet
+            max_idx = min(matched_idx + n - 1, len(df) - 1)
+            for i in range(matched_idx + 1, max_idx + 1):
+                c_fn = str(df.loc[i, 'NOMBRE(S)']).strip()
+                c_ln = str(df.loc[i, 'APELLIDO(S)']).strip()
+                c_full = f"{c_fn} {c_ln}".strip()
+                if c_full:
+                    companion_names.append(c_full)
+
+        # 4. Check the ESTATUS
         current_status = str(matched_row.get('ESTATUS', '')).strip()
 
         if "Confirmado" in current_status:
             with st.container(border=True):
-                st.markdown(f'<div class="guest-name-large" style="margin-bottom:10px;">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
                 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
-                st.markdown("""
+                
+                if companion_names:
+                    names_str = format_names_spanish(companion_names)
+                    msg = f"Tu asistencia y la de {names_str} ya ha sido confirmada."
+                else:
+                    msg = "Tu asistencia ya ha sido confirmada."
+
+                st.markdown(f"""
                     <div class="error-text" style="color: #4A4A4A; font-size: 1.2rem; font-family: 'Playfair Display', serif;">
-                        Tu asistencia ya ha sido confirmada.<br><br>
+                        {msg}<br><br>
                         <b>¡Gracias por confirmar! ✨</b><br>
-                        Estamos muy emocionados y nos encantará compartir este día tan especial contigo.
+                        Estamos muy emocionados y nos encantará compartir este día tan especial con ustedes.
                     </div>
                 """, unsafe_allow_html=True)
-                st.write("") # Spacer
 
         elif "Cancelado" in current_status:
             with st.container(border=True):
-                st.markdown(f'<div class="guest-name-large" style="margin-bottom:10px;">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
                 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
-                st.markdown("""
+                
+                if companion_names:
+                    names_str = format_names_spanish(companion_names)
+                    msg = f"Hemos recibido tu respuesta y la de {names_str}."
+                else:
+                    msg = "Hemos recibido tu respuesta."
+
+                st.markdown(f"""
                     <div class="error-text" style="color: #4A4A4A; font-size: 1.1rem; font-family: 'Playfair Display', serif;">
-                        Hemos recibido tu respuesta.<br><br>
+                        {msg}<br><br>
                         <b>Gracias por avisarnos. 🤍</b><br>
-                        Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber. ¡Esperamos vernos pronto en otra ocasión!
+                        Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber.
                     </div>
                 """, unsafe_allow_html=True)
                 st.write("") # Spacer
