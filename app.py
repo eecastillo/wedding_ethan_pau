@@ -30,6 +30,17 @@ if 'attendance_selection' not in st.session_state:
 st.markdown("""
 <style>
 
+/* --- HIDE STREAMLIT DEFAULT UI --- */
+[data-testid="stHeader"] { display: none; }
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+.stAppDeployButton { display: none; }
+            
+/* --- HIDE STREAMLIT CLOUD UI ELEMENTS --- */
+[data-testid="stToolbar"] { visibility: hidden !important; }
+.viewerBadge_container { display: none !important; }
+.viewerBadge_link { display: none !important; }
+            
             
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
@@ -326,6 +337,16 @@ else:
                         label_visibility="collapsed"
                     )
 
+                    # --- ALLERGIES INPUT ---
+                    st.write("")
+                    st.markdown(f'<div class="form-label">Alergias o Restricciones Alimenticias</div>', unsafe_allow_html=True)
+                    allergies_input = st.text_input(
+                        "Allergies Input",
+                        placeholder="Ej: Nueces, mariscos, gluten...",
+                        label_visibility="collapsed",
+                        key="allergies_field"
+                    )
+
                     st.write("") 
                     
                     submit = st.button("✓ Confirmar mi asistencia", key="submit_yes", use_container_width=True, type="primary")
@@ -339,10 +360,16 @@ else:
                         elif platillos_veganos is not None and platillos_veganos > confirmados:
                             st.error(f"Solo confirmaste {confirmados} asistente(s). El número de platillos veganos no puede ser mayor.")
                         else:
+                            # Logic to format the comments
+                            comentarios_final = ""
+                            if allergies_input.strip():
+                                comentarios_final = f"Alergias: {allergies_input.strip()}"
+
                             sheet.update_cell(gsheet_row, 5, "Confirmado_web")
                             sheet.update_cell(gsheet_row, 6, confirmados)
                             sheet.update_cell(gsheet_row, 7, platillos_veganos)
-                            
+                            sheet.update_cell(gsheet_row, 8, comentarios_final) # <--- Update Comment Column
+
                             load_data.clear()
                             st.success("¡Tu confirmación ha sido guardada exitosamente!")
                             rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
