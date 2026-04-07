@@ -34,6 +34,11 @@ if 'attendance_selection' not in st.session_state:
 st.markdown("""
 <style>
 
+/* --- ADD THIS AT THE TOP OF YOUR STYLE BLOCK --- */
+[data-testid="stSidebar"] { 
+    display: none; 
+}
+
 /* --- HIDE STREAMLIT DEFAULT UI --- */
 [data-testid="stHeader"] { display: none; }
 #MainMenu { visibility: hidden; }
