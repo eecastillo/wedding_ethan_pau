@@ -4,6 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import altair as alt
 
+from connectors.whatsapp import send_whatsapp_template
+
 # 1. AUTHENTICATION / PASSWORD CHECK
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -67,11 +69,11 @@ pending_count = df[~df['ESTATUS'].str.contains("Confirmado|Cancelado", na=False)
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.markdown(f'<div class="metric-container"><div class="metric-value">{confirmed_count}</div><div class="metric-label">Confirmed</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-container"><div class="metric-value">{confirmed_count}</div><div class="metric-label">Confirmados</div></div>', unsafe_allow_html=True)
 with col2:
-    st.markdown(f'<div class="metric-container"><div class="metric-value">{declined_count}</div><div class="metric-label">Declined</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-container"><div class="metric-value">{declined_count}</div><div class="metric-label">Cancelados</div></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pendientes</div></div>', unsafe_allow_html=True)
 
 # 1. Create the data for the chart
 chart_data = pd.DataFrame({
@@ -106,11 +108,11 @@ base_chart = alt.Chart(chart_data).mark_bar(
 st.altair_chart(base_chart, use_container_width=True)
 
 # --- SCHEDULED TABLE (Manual for now) ---
-st.markdown('<div style="text-align:center; color:#9E9E9E; font-size:0.7rem; letter-spacing:0.2em; margin-top:50px;">SCHEDULED CONFIRMATIONS SENTS</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align:center; color:#9E9E9E; font-size:0.7rem; letter-spacing:0.2em; margin-top:50px;">ENVIO DE INVITACIONES AGENDADAS</div>', unsafe_allow_html=True)
 scheduled_data = [
-    {"Date": "March 20, 2026", "Status": "SENT"},
-    {"Date": "April 25, 2026", "Status": "SCHEDULED"},
-    {"Date": "May 05, 2026", "Status": "SCHEDULED"},
+    {"Date": "Marzo 20, 2026", "Status": "ENVIADO"},
+    {"Date": "Abril 25, 2026", "Status": "AGENDADO"},
+    {"Date": "Mayo 05, 2026", "Status": "AGENDADO"},
 ]
 
 for item in scheduled_data:
@@ -118,7 +120,7 @@ for item in scheduled_data:
     with c1:
         st.markdown(f'<div style="font-family:Playfair Display; font-size:1.2rem; color:#4A4A4A; padding:10px 0;">{item["Date"]}</div>', unsafe_allow_html=True)
     with c2:
-        badge = "sent-badge" if item["Status"] == "SENT" else "scheduled-badge"
+        badge = "sent-badge" if item["Status"] == "ENVIADO" else "scheduled-badge"
         st.markdown(f'<div style="padding:15px 0;"><span class="{badge}">{item["Status"]}</span></div>', unsafe_allow_html=True)
     st.divider()
 
@@ -128,7 +130,16 @@ template_url = st.secrets["template_drive_url"]
 st.markdown(f"""
     <a href="{template_url}" target="_blank" style="text-decoration: none;">
         <div style="text-align: center; border: 1px solid #EAEAEA; border-radius: 15px; padding: 15px; color: #4A4A4A; font-family: Playfair Display; font-size: 1.2rem;">
-            📥 Download Guestlist Template
+            📥 Descargar plantilla de lista de invitados
         </div>
     </a>
 """, unsafe_allow_html=True)
+
+if st.button("🚀 Send 'Hello World' to Pending Guests", type="primary"):
+    success, error_msg = send_whatsapp_template(recipient_phone="523118765918")
+            
+    if success:
+        st.toast(f"✅ Sent to guest")
+        
+    else:
+        st.error(f"❌ Failed to send to guest: {error_msg}")
