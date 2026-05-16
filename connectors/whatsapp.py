@@ -1,21 +1,15 @@
-# connectors/whatsapp.py
 import requests
-import json
 import streamlit as st
 
-def send_whatsapp_template(recipient_phone, template_name="hello_world", language_code="en_US"):
-    """
-    Sends a WhatsApp template message using the Meta Cloud API.
-    """
-    # Pull credentials securely from secrets.toml
+def send_whatsapp_template(recipient_phone, template_name, language_code="en", components=None):
     ACCESS_TOKEN = st.secrets["META_ACCESS_TOKEN"]
     PHONE_NUMBER_ID = st.secrets["META_PHONE_NUMBER_ID"]
 
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
 
     headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {ACCESS_TOKEN}"
+        # 'Content-Type' is handled automatically by the json= parameter
     }
 
     payload = {
@@ -30,9 +24,13 @@ def send_whatsapp_template(recipient_phone, template_name="hello_world", languag
         }
     }
 
+    if components:
+        payload["template"]["components"] = components
+
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        # Return True if successful, False + error message if it failed
+        # Using json=payload is the most robust way to send this
+        response = requests.post(url, headers=headers, json=payload)
+        
         if response.status_code == 200:
             return True, "Success"
         else:
