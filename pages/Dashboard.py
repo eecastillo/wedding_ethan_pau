@@ -168,11 +168,10 @@ st.markdown(f'<a href="{template_url}" target="_blank" style="text-decoration: n
 
 st.write("")
 if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_width=True):
-    # 1. Provide the URL to your invitation PDF and the guest name
-    pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1776129829/wedding_Ethan_Paulina_tjlbt3.pdf" 
-    guest_name = "Ethan"
+    # Ensure this URL is publicly accessible and points directly to the file
+    pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1778907658/invitacion_boda_Naum_Jahaziel_Nuno_Contreras_k9jnvc.pdf" 
+    guest_name = "Karla"
 
-    # 2. Structure with the REQUIRED parameter_name
     wedding_components = [
         {
             "type": "header",
@@ -191,13 +190,21 @@ if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_w
             "parameters": [
                 {
                     "type": "text",
-                    "parameter_name": "nombre_invitado",  # <--- THIS IS THE MISSING PIECE!
+                    "parameter_name": "nombre_invitado", # Restored!
                     "text": guest_name
                 }
             ]
         }
     ]
-    success, error_msg = send_whatsapp_template(recipient_phone="523118765918", template_name="invitacion_boda", language_code="en", components=wedding_components)
+    
+    # Sending the actual invitation template
+    success, error_msg = send_whatsapp_template(
+        recipient_phone="523112667547", 
+        template_name="invitacion_boda", 
+        language_code="en", 
+        components=wedding_components
+    )
+    
     if success:
         st.toast("✅ Mensaje enviado correctamente")
     else:

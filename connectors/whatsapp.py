@@ -5,7 +5,7 @@ def send_whatsapp_template(recipient_phone, template_name, language_code="en", c
     ACCESS_TOKEN = st.secrets["META_ACCESS_TOKEN"]
     PHONE_NUMBER_ID = st.secrets["META_PHONE_NUMBER_ID"]
 
-    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v25.0/{PHONE_NUMBER_ID}/messages"
 
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}"
