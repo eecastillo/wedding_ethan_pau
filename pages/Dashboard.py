@@ -7,6 +7,7 @@ import json
 import os
 from datetime import datetime
 from connectors.whatsapp import send_whatsapp_template
+from supabase import create_client, Client # <-- ADD THIS LINE
 
 # --- 1. AUTHENTICATION ---
 if "authenticated" not in st.session_state:
@@ -169,8 +170,8 @@ st.markdown(f'<a href="{template_url}" target="_blank" style="text-decoration: n
 st.write("")
 if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_width=True):
     # Ensure this URL is publicly accessible and points directly to the file
-    pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1778907658/invitacion_boda_Naum_Jahaziel_Nuno_Contreras_k9jnvc.pdf" 
-    guest_name = "Karla"
+    pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1779163670/invitacion_boda_Clara_Esperanza_Pulido_de_Castillo_bujf5x.pdf" 
+    guest_name = "Clara"
 
     wedding_components = [
         {
@@ -199,7 +200,7 @@ if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_w
     
     # Sending the actual invitation template
     success, error_msg = send_whatsapp_template(
-        recipient_phone="523112667547", 
+        recipient_phone="523118765918", 
         template_name="invitacion_boda", 
         language_code="en", 
         components=wedding_components
@@ -209,3 +210,77 @@ if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_w
         st.toast("✅ Mensaje enviado correctamente")
     else:
         st.error(f"❌ Error: {error_msg}")
+#Here it goes the code for generating a list based on the retrieved intents from the supabase database, extpected <USER>: <INTENT>
+# ==========================================
+# RSVP LIVE FEED (SUPABASE + GOOGLE SHEETS MERGE)
+# ==========================================
+st.markdown('<div class="host-header" style="margin-top: 50px;">RESPUESTAS EN TIEMPO REAL</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title" style="font-size: 2.5rem;">RSVP Feed</div>', unsafe_allow_html=True)
+
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+@st.cache_data(ttl=60) 
+def fetch_supabase_intents():
+    if not supabase: return []
+    try:
+        response = supabase.table("guests").select("*").order("updated_at", desc=True).execute()
+        return response.data
+    except: return []
+
+guests_intents = fetch_supabase_intents()
+
+if not guests_intents:
+    st.info("No hay respuestas de invitados registradas aún.")
+else:
+    df_intents = pd.DataFrame(guests_intents)
+    df_sheets = df.copy() 
+    
+    # 1. USAMOS EL NOMBRE EXACTO DE TU COLUMNA: 'CONTACTO: CELULAR'
+    if 'CONTACTO: CELULAR' in df_sheets.columns and 'phone_number' in df_intents.columns:
+        df_sheets['match_phone'] = df_sheets['CONTACTO: CELULAR'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
+        df_intents['match_phone'] = df_intents['phone_number'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
+        
+        merged_df = pd.merge(df_intents, df_sheets, on='match_phone', how='left')
+        
+        for _, row in merged_df.iterrows():
+            # 2. USAMOS LOS NOMBRES EXACTOS: 'NOMBRE(S)' y 'APELLIDO(S)'
+            first_name = str(row.get('NOMBRE(S)', ''))
+            last_name = str(row.get('APELLIDO(S)', ''))
+            
+            if first_name == 'nan' or first_name.strip() == '':
+                display_name = f"👤 DESCONOCIDO (📱 {row.get('phone_number', 'Sin número')})" 
+            else:
+                clean_first = first_name.replace('nan', '').strip()
+                clean_last = last_name.replace('nan', '').strip()
+                display_name = f"👤 {clean_first} {clean_last}".strip()
+                
+            intent = str(row.get('intent', 'neutral')).upper()
+            last_msg = str(row.get('last_message', '')).replace('nan', '')
+            
+            color, icon, status_text = "#9E9E9E", "⏳", "PENDIENTE"
+            if intent == "GOING": color, icon, status_text = "#4F8C78", "✅", "CONFIRMADO"
+            elif intent == "NOT GOING": color, icon, status_text = "#BC8F8F", "❌", "CANCELADO"
+                
+            st.markdown(f"""
+            <div style="border: 1px solid #EAEAEA; border-radius: 10px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FAFAFA;">
+                <div>
+                    <div style="font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #4A4A4A; font-weight: 500;">{display_name}</div>
+                    <div style="font-family: 'Montserrat', sans-serif; font-size: 0.75rem; color: #9E9E9E; margin-top: 4px; font-style: italic;">"{last_msg}"</div>
+                </div>
+                <div style="color: {color}; font-weight: bold; font-family: 'Montserrat', sans-serif; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">
+                    {icon} {status_text}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.error("Error conectando las columnas. Revisa los nombres en el código.")
+            
+    if st.button("🔄 Actualizar Feed", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
