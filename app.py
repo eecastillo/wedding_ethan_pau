@@ -6,7 +6,6 @@ from streamlit_extras.let_it_rain import rain
 from datetime import datetime, timezone, timedelta
 
 # Define your deadline: Year, Month, Day, Hour, Minute
-# Example: September 1st, 2026 at 11:59 PM
 DEADLINE = datetime(2026, 8, 26, 20, 56, 0)
 
 def format_names_spanish(names):
@@ -16,7 +15,6 @@ def format_names_spanish(names):
     if len(names) == 1:
         return names[0]
     
-    # Logic for 'y' vs 'e' (if next name starts with I or Hi)
     last_name = names[-1]
     conjunction = "e" if last_name.lower().startswith(('i', 'hi')) and not last_name.lower().startswith(('hia', 'hie', 'hio', 'hiu')) else "y"
     
@@ -26,120 +24,83 @@ def format_names_spanish(names):
 st.set_page_config(page_title="Confirmación de Asistencia", page_icon="💍", layout="centered")
 
 # --- INITIALIZE SESSION STATE ---
-# We no longer need selected_guest_idx because the URL handles the routing!
 if 'attendance_selection' not in st.session_state:
     st.session_state.attendance_selection = None
 
-# --- CSS INJECTION ---
+# --- CSS INJECTION (100% COMPATIBLE CON TODOS LOS NAVEGADORES) ---
 st.markdown("""
 <style>
-
-/* --- ADD THIS AT THE TOP OF YOUR STYLE BLOCK --- */
-[data-testid="stSidebar"] { 
-    display: none; 
-}
-
-/* --- HIDE STREAMLIT DEFAULT UI --- */
+[data-testid="stSidebar"] { display: none; }
 [data-testid="stHeader"] { display: none; }
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
 .stAppDeployButton { display: none; }
-            
-/* --- HIDE STREAMLIT CLOUD UI ELEMENTS --- */
 [data-testid="stToolbar"] { visibility: hidden !important; }
 .viewerBadge_container { display: none !important; }
 .viewerBadge_link { display: none !important; }
             
-            
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Montserrat:wght@300;400;500&display=swap');
 
-.stApp { background-color: #FCFBF9; }
+.stApp { background-color: #FCFBF9 !important; }
 .block-container { padding-top: 4rem; padding-bottom: 2rem; }
 
-.pre-title {
-    font-family: 'Montserrat', sans-serif; font-size: 0.75rem;
-    letter-spacing: 0.3em; color: #9E9E9E; text-align: center; margin-bottom: -10px;
-}
-
-.main-title {
-    font-family: 'Playfair Display', serif;
-    font-size: clamp(2.5rem, 12vw, 4.5rem); 
-    color: #2D2D2D; text-align: center; font-weight: 400; margin-top: 0; margin-bottom: 25px;
-}
-
+.pre-title { font-family: 'Montserrat', sans-serif; font-size: 0.75rem; letter-spacing: 0.3em; color: #9E9E9E; text-align: center; margin-bottom: -10px; }
+.main-title { font-family: 'Playfair Display', serif; font-size: clamp(2.5rem, 12vw, 4.5rem); color: #2D2D2D; text-align: center; font-weight: 400; margin-top: 0; margin-bottom: 25px; }
 .custom-divider { display: flex; align-items: center; justify-content: center; margin-bottom: 40px; }
 .custom-divider::before, .custom-divider::after { content: ""; height: 1px; background-color: #D3D3D3; width: 50px; }
 .custom-divider .dot { height: 5px; width: 5px; background-color: #BDBDBD; border-radius: 50%; margin: 0 15px; }
-
 .error-text { font-family: 'Montserrat', sans-serif; color: #9E9E9E; text-align: center; font-size: 0.9rem; margin-top: 40px; line-height: 1.6; padding: 0 20px;}
 .footer { font-family: 'Montserrat', sans-serif; color: #BDBDBD; text-align: center; font-size: 0.8rem; margin-top: 100px; padding-bottom: 20px; }
 
-/* --- THE MAIN CONTAINER CARD STYLING --- */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #FFFFFF;
-    border: 1px solid #EAEAEA;
-    border-radius: 15px;
-    padding: 40px 30px;
-    box-shadow: 0px 4px 15px rgba(0,0,0,0.03);
-    max-width: 80%;
-    margin: 20px auto 0 auto; 
+/* ========================================================= */
+/* 1. TARJETA PRINCIPAL BLANCA (Estilo Base)                 */
+/* ========================================================= */
+div[data-testid="stVerticalBlockBorderWrapper"] { 
+    background-color: #FFFFFF !important; 
+    border: 1px solid #E2E2E2 !important; 
+    border-radius: 15px !important; 
+    padding: 40px 30px !important; 
+    box-shadow: 0px 8px 25px rgba(0,0,0,0.06) !important; 
+    max-width: 80% !important; 
+    margin: 20px auto 0 auto !important; 
 }
 
-.guest-role {
-    font-family: 'Montserrat', sans-serif; font-size: 0.65rem; letter-spacing: 0.25em;
-    color: #9E9E9E; text-align: center; text-transform: uppercase; margin-bottom: 10px; margin-top: 10px;
+/* ========================================================= */
+/* 2. TARJETAS BEIGE DE INVITADOS (Tarjetas Anidadas)        */
+/* ========================================================= */
+div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #F0EAE1 !important;  /* Beige contrastante */
+    border: 1px solid #DFD8CC !important; 
+    border-radius: 12px !important; 
+    padding: 20px 20px 5px 20px !important; 
+    margin-top: 0px !important; 
+    margin-bottom: 15px !important; 
+    box-shadow: inset 0px 2px 4px rgba(0,0,0,0.02) !important; 
+    max-width: 100% !important; /* Resetea el 80% heredado de la tarjeta padre */
 }
 
-.guest-name-large {
-    font-family: 'Playfair Display', serif; font-size: 2.2rem; color: #2D2D2D;
-    text-align: center; margin-bottom: 30px; line-height: 1.2;
-}
+/* Tipografía de nombres */
+.guest-role { font-family: 'Montserrat', sans-serif; font-size: 0.65rem; letter-spacing: 0.25em; color: #9E9E9E; text-align: center; text-transform: uppercase; margin-bottom: 10px; margin-top: 10px; }
+.guest-name-large { font-family: 'Playfair Display', serif; font-size: 2.2rem; color: #2D2D2D; text-align: center; margin-bottom: 30px; line-height: 1.2; }
+.companion-container { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 30px; }
+.companion-pill { background-color: #F3EFE9; color: #4A4A4A; font-family: 'Playfair Display', serif; font-size: 1.1rem; padding: 8px 25px; border-radius: 12px; border: 1px solid #EAE5DE; }
+.form-label { font-family: 'Montserrat', sans-serif; font-size: 0.85rem; color: #7D7D7D; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; font-weight: 400; }
 
-.companion-container {
-    display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 30px;
-}
-
-.companion-pill {
-    background-color: #F3EFE9; color: #4A4A4A; font-family: 'Playfair Display', serif;
-    font-size: 1.1rem; padding: 8px 25px; border-radius: 12px; border: 1px solid #EAE5DE;
-}
-
-/* Input Labels with SVG Icons */
-.form-label {
-    font-family: 'Montserrat', sans-serif; font-size: 0.85rem; color: #7D7D7D;
-    margin-bottom: 5px; display: flex; align-items: center; gap: 8px; font-weight: 400;
-}
-
-/* Style for the secondary buttons (Unclicked) */
-div[data-testid="stButton"] button[kind="secondary"] {
-    width: 100% !important; background-color: #FFFFFF !important; border: 1px solid #E0E0E0 !important;
-    border-radius: 10px !important; padding: 18px 25px !important; margin-bottom: 5px !important;
-    box-shadow: 0px 2px 4px rgba(0,0,0,0.02) !important; transition: border-color 0.3s ease !important;
-}
+/* Botones */
+div[data-testid="stButton"] button[kind="secondary"] { width: 100% !important; background-color: #FFFFFF !important; border: 1px solid #E0E0E0 !important; border-radius: 10px !important; padding: 18px 25px !important; margin-bottom: 5px !important; box-shadow: 0px 2px 4px rgba(0,0,0,0.02) !important; transition: border-color 0.3s ease !important; }
 div[data-testid="stButton"] button[kind="secondary"]:hover { border-color: #6D5C4F !important; color: #2D2D2D !important; }
-div[data-testid="stButton"] button[kind="secondary"] p {
-    font-family: 'Playfair Display', serif !important; font-size: 1.25rem !important; color: #4A4A4A !important; margin: 0 !important; width: 100% !important; text-align: center !important;
-}
-
-/* Style for the active/selected buttons (Primary) - Fixed Height! */
-div[data-testid="stButton"] button[kind="primary"] {
-    width: 100% !important; background-color: #A89F91 !important; color: white !important;
-    border: 1px solid #A89F91 !important; border-radius: 10px !important;
-    padding: 18px 25px !important; margin-bottom: 5px !important;
-    font-family: 'Montserrat', sans-serif !important; transition: background-color 0.3s !important;
-    box-shadow: 0px 2px 4px rgba(0,0,0,0.02) !important;
-}
+div[data-testid="stButton"] button[kind="secondary"] p { font-family: 'Playfair Display', serif !important; font-size: 1.25rem !important; color: #4A4A4A !important; margin: 0 !important; width: 100% !important; text-align: center !important; }
+div[data-testid="stButton"] button[kind="primary"] { width: 100% !important; background-color: #A89F91 !important; color: white !important; border: 1px solid #A89F91 !important; border-radius: 10px !important; padding: 18px 25px !important; margin-bottom: 5px !important; font-family: 'Montserrat', sans-serif !important; transition: background-color 0.3s !important; box-shadow: 0px 2px 4px rgba(0,0,0,0.02) !important; }
 div[data-testid="stButton"] button[kind="primary"]:hover { background-color: #8C847A !important; border-color: #8C847A !important; }
-div[data-testid="stButton"] button[kind="primary"] p { 
-    color: white !important; font-weight: 500 !important; font-size: 1.25rem !important; margin: 0 !important; text-align: center !important;
-}
+div[data-testid="stButton"] button[kind="primary"] p { color: white !important; font-weight: 500 !important; font-size: 1.25rem !important; margin: 0 !important; text-align: center !important; }
+div[data-testid="stButton"] button[key^="submit_"] p { font-family: 'Montserrat', sans-serif !important; font-size: 1rem !important; }
 
-/* Specific fix for the submit buttons to match primary style but use Montserrat */
-div[data-testid="stButton"] button[key^="submit_"] p {
-    font-family: 'Montserrat', sans-serif !important;
-    font-size: 1rem !important;
-}
-
+/* Contraste en Inputs y Alertas */
+div[data-testid="stCheckbox"] label p { color: #4A4A4A !important; font-family: 'Montserrat', sans-serif !important; font-size: 1.05rem !important; }
+div[data-testid="stAlert"] p { color: #4A4A4A !important; font-family: 'Montserrat', sans-serif !important; font-weight: 500 !important; }
+input[type="text"] { color: #4A4A4A !important; background-color: #FFFFFF !important; border: 1px solid #EAEAEA !important; }
+input[type="text"]::placeholder { color: #9E9E9E !important; opacity: 1 !important; }
+div[data-testid="stTextInput"] label p { font-family: 'Montserrat', sans-serif !important; font-size: 0.85rem !important; color: #7D7D7D !important; font-weight: 400 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -151,7 +112,6 @@ svg_leaf = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="
 st.markdown('<div class="pre-title">ESTÁS INVITADO</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">Confirmación</div>', unsafe_allow_html=True)
 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
-
 
 # --- REVISED COUNTDOWN LOGIC ---
 now = datetime.now()
@@ -167,13 +127,10 @@ if diff.total_seconds() <= 0:
     """, unsafe_allow_html=True)
     st.stop()
 else:
-    # total_seconds() gives us the absolute entire difference
     seconds_left = int(diff.total_seconds())
-    
     days = seconds_left // 86400
     hours = (seconds_left % 86400) // 3600
     minutes = (seconds_left % 3600) // 60
-
     st.markdown(f"""
         <div style="text-align: center; font-family: 'Montserrat', sans-serif; margin-bottom: 30px; padding: 15px; border-radius: 12px; background-color: #F9F8F6; border: 1px solid #F1EFEF;">
             <div style="color: #9E9E9E; letter-spacing: 0.2em; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 8px;">
@@ -203,44 +160,44 @@ df['FULL_NAME'] = df['NOMBRE(S)'].astype(str).str.strip() + " " + df['APELLIDO(S
 # APP LOGIC - ROUTING BY URL PARAMETER
 # ==========================================
 
-# 1. Get the ID from the URL (e.g., ?id=FAM-001)
 query_params = st.query_params
 guest_id = query_params.get("id")
 
 if not guest_id:
-    # No ID in the URL. Show a polite message.
     st.markdown('<div class="error-text">¡Hola! Para confirmar tu asistencia, por favor utiliza el enlace personalizado que te enviamos por mensaje. 🤍</div>', unsafe_allow_html=True)
-
 else:
-    # 2. Check if the ID exists in the DataFrame
     if 'ID_UNICO' not in df.columns:
         st.error("Error: La columna 'ID_UNICO' no existe en Google Sheets.")
         st.stop()
         
-    # Cast both to string to ensure a perfect match even if IDs look like numbers
-    match_condition = df['ID_UNICO'].astype(str) == str(guest_id)
+    # 1. Sanitize the URL parameter (remove spaces, force uppercase)
+    clean_guest_id = str(guest_id).strip().upper()
+    
+    # 2. Sanitize the Google Sheets column (remove spaces, force uppercase)
+    df['ID_UNICO_CLEAN'] = df['ID_UNICO'].astype(str).str.strip().str.upper()
+    print(df['ID_UNICO_CLEAN'])
+    
+    # 3. Match them securely
+    match_condition = df['ID_UNICO_CLEAN'] == clean_guest_id
     matches = df[match_condition]
     
     if matches.empty:
-        # The ID is in the URL, but it doesn't match anyone in the database
         st.markdown('<div class="error-text">No pudimos encontrar tu invitación. Por favor verifica que el enlace sea correcto o comunícate con nosotros.</div>', unsafe_allow_html=True)
-        
     else:
-        # 3. We have a match! Load their specific data.
         matched_idx = matches.index[0]
         matched_row = matches.iloc[0]
         main_guest_name = matched_row['FULL_NAME']
         
-        # --- DEFINE N BEFORE ANYTHING ELSE ---
         try:
             n = int(matched_row['# DE PERSONAS'])
         except (ValueError, TypeError):
-            n = 1 # Default to at least the main guest if data is missing
+            n = 1 
             
-        # --- PREPARE COMPANION NAMES ---
+        # --- PREPARE ALL PARTY MEMBERS ---
+        party_members = [{"name": main_guest_name, "df_idx": matched_idx}]
         companion_names = []
+        
         if n > 1:
-            # We look at the rows immediately following the main guest in the sheet
             max_idx = min(matched_idx + n - 1, len(df) - 1)
             for i in range(matched_idx + 1, max_idx + 1):
                 c_fn = str(df.loc[i, 'NOMBRE(S)']).strip()
@@ -248,8 +205,8 @@ else:
                 c_full = f"{c_fn} {c_ln}".strip()
                 if c_full:
                     companion_names.append(c_full)
+                    party_members.append({"name": c_full, "df_idx": i})
 
-        # 4. Check the ESTATUS
         current_status = str(matched_row.get('ESTATUS', '')).strip()
 
         if "Confirmado" in current_status:
@@ -289,40 +246,22 @@ else:
                         Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber.
                     </div>
                 """, unsafe_allow_html=True)
-                st.write("") # Spacer
 
         else:
-            # --- SHOW THE ORIGINAL RSVP FORM ---
-            try:
-                n = int(matched_row['# DE PERSONAS'])
-            except ValueError:
-                n = 0
-                
-            invitados_options = list(range(1, n + 1)) 
-            veganos_options = list(range(0, n + 1))   
-            
-            # Using a styled container
             with st.container(border=True):
-                # Main Guest Info
                 st.markdown('<div class="guest-role">INVITADO PRINCIPAL</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="guest-name-large">{main_guest_name}</div>', unsafe_allow_html=True)
                 
-                # Companions logic
                 if n > 1:
                     st.markdown('<div class="guest-role">ACOMPAÑANTES</div>', unsafe_allow_html=True)
-                    max_idx = min(matched_idx + n-1, len(df) - 1)
-                    
                     pills_html = '<div class="companion-container">'
-                    for i in range(matched_idx + 1, max_idx + 1):
-                        companion_name = f"{df.loc[i, 'NOMBRE(S)']} {df.loc[i, 'APELLIDO(S)']}".strip()
-                        pills_html += f'<div class="companion-pill">{companion_name}</div>'
+                    for name in companion_names:
+                        pills_html += f'<div class="companion-pill">{name}</div>'
                     pills_html += '</div>'
                     st.markdown(pills_html, unsafe_allow_html=True)
                     
-                # Inner Divider
                 st.markdown('<div class="custom-divider" style="margin-bottom: 25px;"><div class="dot"></div></div>', unsafe_allow_html=True)
 
-                # Attendance Question
                 st.markdown('<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">¿Podrán acompañarnos?</div>', unsafe_allow_html=True)
 
                 def set_attendance(status):
@@ -332,114 +271,114 @@ else:
 
                 with col1:
                     is_yes = st.session_state.attendance_selection == "Sí, confirmamos"
-                    st.button(
-                        "✓ Sí, confirmamos",
-                        type="primary" if is_yes else "secondary",
-                        key="btn_yes",
-                        on_click=set_attendance,
-                        args=("Sí, confirmamos",),
-                        use_container_width=True
-                    )
+                    st.button("✓ Sí, confirmamos", type="primary" if is_yes else "secondary", key="btn_yes", on_click=set_attendance, args=("Sí, confirmamos",), use_container_width=True)
 
                 with col2:
                     is_no = st.session_state.attendance_selection == "No, lamentablemente no podremos"
-                    st.button(
-                        "✗ No podremos",
-                        type="primary" if is_no else "secondary",
-                        key="btn_no",
-                        on_click=set_attendance,
-                        args=("No, lamentablemente no podremos",),
-                        use_container_width=True
-                    )
+                    st.button("✗ No podremos", type="primary" if is_no else "secondary", key="btn_no", on_click=set_attendance, args=("No, lamentablemente no podremos",), use_container_width=True)
 
                 attendance = st.session_state.attendance_selection
                 
-                # Conditional Inputs
-                confirmados = None
-                platillos_veganos = None
-                
                 if attendance == "Sí, confirmamos":
                     st.write("") 
-                    st.write("") 
-                    st.markdown(f'<div class="form-label">{svg_people} Invitados Confirmados</div>', unsafe_allow_html=True)
-                    confirmados = st.selectbox(
-                        "Invitados Confirmados", 
-                        options=invitados_options, 
-                        index=None, 
-                        placeholder="Seleccionar cantidad", 
-                        label_visibility="collapsed"
-                    )
+                    st.markdown(f'<div class="form-label">{svg_people} Confirma asistencia y restricciones por persona:</div>', unsafe_allow_html=True)
                     
-                    st.markdown(f'<div class="form-label">{svg_leaf} Platillos veganos</div>', unsafe_allow_html=True)
-                    platillos_veganos = st.selectbox(
-                        "Platillos veganos", 
-                        options=veganos_options, 
-                        index=None, 
-                        placeholder="Seleccionar cantidad", 
-                        label_visibility="collapsed"
-                    )
-
-                    # --- ALLERGIES INPUT ---
-                    st.write("")
-                    st.markdown(f'<div class="form-label">Alergias o Restricciones Alimenticias</div>', unsafe_allow_html=True)
-                    allergies_input = st.text_input(
-                        "Allergies Input",
-                        placeholder="Ej: Nueces, mariscos, gluten...",
-                        label_visibility="collapsed",
-                        key="allergies_field"
-                    )
+                    # --- DYNAMIC PER-PERSON UI LOOP ---
+                    attendance_results = {}
+                    vegan_results = {}
+                    allergy_results = {}
+                    
+                    for member in party_members:
+                        chk_key = f"chk_{member['df_idx']}"
+                        
+                        if chk_key not in st.session_state:
+                            st.session_state[chk_key] = True
+                            
+                        is_going_state = st.session_state[chk_key]
+                        
+                        with st.container(border=True): 
+                            label = f"**{member['name']}** asistirá" if is_going_state else f"{member['name']} no asistirá"
+                            
+                            is_going = st.checkbox(label, key=chk_key)
+                            attendance_results[member["df_idx"]] = is_going
+                            
+                            if is_going:
+                                st.write("") # Small visual gap
+                                col_v, col_a = st.columns([1, 1.5]) 
+                                with col_v:
+                                    vegan_results[member["df_idx"]] = st.checkbox("🌱 Deseo menú vegano", key=f"veg_{member['df_idx']}")
+                                with col_a:
+                                    allergy_results[member["df_idx"]] = st.text_input(
+                                        "Alergias o Restricciones Alimenticias", 
+                                        placeholder="Ej: Nueces, mariscos, gluten...", 
+                                        key=f"alg_{member['df_idx']}"
+                                    )
+                            else:
+                                vegan_results[member["df_idx"]] = False
+                                allergy_results[member["df_idx"]] = ""
 
                     st.write("") 
                     
-                    submit = st.button("✓ Confirmar mi asistencia", key="submit_yes", use_container_width=True, type="primary")
+                    # --- AGGREGATE RESULTS FOR SAVING ---
+                    confirmados = sum(attendance_results.values())
+                    platillos_veganos = sum(vegan_results.values())
+                    
+                    comentarios_lista = []
+                    for member in party_members:
+                        idx = member["df_idx"]
+                        if attendance_results[idx] and allergy_results[idx].strip():
+                            comentarios_lista.append(f"{member['name']}: {allergy_results[idx].strip()}")
+                    
+                    comentarios_final = " | ".join(comentarios_lista)
+
+                    # --- SUBMISSION LOGIC ---
+                    if confirmados == 0:
+                        st.warning("⚠️ Debes seleccionar al menos a un invitado. Si nadie asistirá, por favor cambia tu respuesta principal a 'No podremos'.")
+                    
+                    submit = st.button(
+                        "✓ Confirmar mi asistencia", 
+                        key="submit_yes", 
+                        use_container_width=True, 
+                        type="primary",
+                        disabled=(confirmados == 0)
+                    )
                     
                     if submit:
-                        # We check the time AGAIN right at the moment of clicking
                         if datetime.now() >= DEADLINE:
-                            st.error("Lo sentimos, el tiempo para confirmar ha expirado mientras tenías la página abierta. No se han guardado los cambios.")
+                            st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
                             st.stop()
-                        
-                        # --- IF TIME IS VALID, PROCEED TO WRITE ---
                         else:
-                            # Plus 2 because matched_idx is 0-indexed and Google Sheets has a header row
-                            gsheet_row = int(matched_idx) + 2 
-                            
-                            if confirmados is None:
-                                st.error("Por favor selecciona el número de invitados.")
-                            elif platillos_veganos is not None and platillos_veganos > confirmados:
-                                st.error(f"Solo confirmaste {confirmados} asistente(s). El número de platillos veganos no puede ser mayor.")
-                            else:
-                                # Logic to format the comments
-                                comentarios_final = ""
-                                if allergies_input.strip():
-                                    comentarios_final = f"Alergias: {allergies_input.strip()}"
+                            for df_idx, is_going in attendance_results.items():
+                                gsheet_row = df_idx + 2 
+                                status_to_write = "Confirmado_web" if is_going else "Cancelado_web"
+                                sheet.update_cell(gsheet_row, 5, status_to_write)
+                                
+                            main_gsheet_row = matched_idx + 2
+                            sheet.update_cell(main_gsheet_row, 6, confirmados)
+                            sheet.update_cell(main_gsheet_row, 7, platillos_veganos)
+                            sheet.update_cell(main_gsheet_row, 8, comentarios_final)
 
-                                sheet.update_cell(gsheet_row, 5, "Confirmado_web")
-                                sheet.update_cell(gsheet_row, 6, confirmados)
-                                sheet.update_cell(gsheet_row, 7, platillos_veganos)
-                                sheet.update_cell(gsheet_row, 8, comentarios_final) # <--- Update Comment Column
-
-                                load_data.clear()
-                                st.success("¡Tu confirmación ha sido guardada exitosamente!")
-                                rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
+                            load_data.clear()
+                            st.success("¡Tu confirmación ha sido guardada exitosamente!")
+                            rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
                             
                 elif attendance == "No, lamentablemente no podremos":
-                    st.write("") 
                     st.write("") 
                     submit_cancel = st.button("✗ Confirmar mi cancelación", key="submit_no", use_container_width=True, type="primary")
                     
                     if submit_cancel:
-                        # We check the time AGAIN right at the moment of clicking
                         if datetime.now() >= DEADLINE:
-                            st.error("Lo sentimos, el tiempo para confirmar ha expirado mientras tenías la página abierta. No se han guardado los cambios.")
+                            st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
                             st.stop()
-                        
-                        # --- IF TIME IS VALID, PROCEED TO WRITE ---
                         else:
-                            gsheet_row = int(matched_idx) + 2
-                            sheet.update_cell(gsheet_row, 5, "Cancelado_web")
-                            sheet.update_cell(gsheet_row, 6, 0)
-                            sheet.update_cell(gsheet_row, 7, 0)
+                            for member in party_members:
+                                gsheet_row = member["df_idx"] + 2
+                                sheet.update_cell(gsheet_row, 5, "Cancelado_web")
+                            
+                            main_gsheet_row = matched_idx + 2
+                            sheet.update_cell(main_gsheet_row, 6, 0)
+                            sheet.update_cell(main_gsheet_row, 7, 0)
+                            sheet.update_cell(main_gsheet_row, 8, "")
                             
                             load_data.clear()
                             st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
