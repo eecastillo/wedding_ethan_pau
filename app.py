@@ -175,7 +175,6 @@ else:
     
     # 2. Sanitize the Google Sheets column (remove spaces, force uppercase)
     df['ID_UNICO_CLEAN'] = df['ID_UNICO'].astype(str).str.strip().str.upper()
-    print(df['ID_UNICO_CLEAN'])
     
     # 3. Match them securely
     match_condition = df['ID_UNICO_CLEAN'] == clean_guest_id
@@ -319,17 +318,8 @@ else:
 
                     st.write("") 
                     
-                    # --- AGGREGATE RESULTS FOR SAVING ---
+                    # Confirmados sigue siendo necesario para habilitar/deshabilitar el botón de submit
                     confirmados = sum(attendance_results.values())
-                    platillos_veganos = sum(vegan_results.values())
-                    
-                    comentarios_lista = []
-                    for member in party_members:
-                        idx = member["df_idx"]
-                        if attendance_results[idx] and allergy_results[idx].strip():
-                            comentarios_lista.append(f"{member['name']}: {allergy_results[idx].strip()}")
-                    
-                    comentarios_final = " | ".join(comentarios_lista)
 
                     # --- SUBMISSION LOGIC ---
                     if confirmados == 0:
@@ -348,15 +338,25 @@ else:
                             st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
                             st.stop()
                         else:
-                            for df_idx, is_going in attendance_results.items():
-                                gsheet_row = df_idx + 2 
-                                status_to_write = "Confirmado_web" if is_going else "Cancelado_web"
-                                sheet.update_cell(gsheet_row, 5, status_to_write)
+                            # GUARDADO INDIVIDUAL: Escribir fila por fila en el spreadsheet
+                            for member in party_members:
+                                idx = member["df_idx"]
+                                gsheet_row = idx + 2 
                                 
-                            main_gsheet_row = matched_idx + 2
-                            sheet.update_cell(main_gsheet_row, 6, confirmados)
-                            sheet.update_cell(main_gsheet_row, 7, platillos_veganos)
-                            sheet.update_cell(main_gsheet_row, 8, comentarios_final)
+                                is_going = attendance_results.get(idx, False)
+                                is_vegan = vegan_results.get(idx, False)
+                                allergy_text = allergy_results.get(idx, "").strip()
+                                
+                                val_status = "Confirmado_web" if is_going else "Cancelado_web"
+                                val_conf = 1 if is_going else 0
+                                val_veg = 1 if (is_going and is_vegan) else 0
+                                val_com = f"Alergias: {allergy_text}" if (is_going and allergy_text) else ""
+                                
+                                # Inyectar valores precisos para esta persona en específico
+                                sheet.update_cell(gsheet_row, 5, val_status)
+                                sheet.update_cell(gsheet_row, 6, val_conf)
+                                sheet.update_cell(gsheet_row, 7, val_veg)
+                                sheet.update_cell(gsheet_row, 8, val_com)
 
                             load_data.clear()
                             st.success("¡Tu confirmación ha sido guardada exitosamente!")
@@ -371,14 +371,13 @@ else:
                             st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
                             st.stop()
                         else:
+                            # CANCELACIÓN INDIVIDUAL: Escribir '0' fila por fila
                             for member in party_members:
                                 gsheet_row = member["df_idx"] + 2
                                 sheet.update_cell(gsheet_row, 5, "Cancelado_web")
-                            
-                            main_gsheet_row = matched_idx + 2
-                            sheet.update_cell(main_gsheet_row, 6, 0)
-                            sheet.update_cell(main_gsheet_row, 7, 0)
-                            sheet.update_cell(main_gsheet_row, 8, "")
+                                sheet.update_cell(gsheet_row, 6, 0)
+                                sheet.update_cell(gsheet_row, 7, 0)
+                                sheet.update_cell(gsheet_row, 8, "")
                             
                             load_data.clear()
                             st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
