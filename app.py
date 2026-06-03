@@ -101,11 +101,69 @@ div[data-testid="stAlert"] p { color: #4A4A4A !important; font-family: 'Montserr
 input[type="text"] { color: #4A4A4A !important; background-color: #FFFFFF !important; border: 1px solid #EAEAEA !important; }
 input[type="text"]::placeholder { color: #9E9E9E !important; opacity: 1 !important; }
 div[data-testid="stTextInput"] label p { font-family: 'Montserrat', sans-serif !important; font-size: 0.85rem !important; color: #7D7D7D !important; font-weight: 400 !important; }
+
+/* ========================================================= */
+/* 3. ESTILOS DE CHECKBOX (CHECKBOX PERSONALIZADO INFALIBLE) */
+/* ========================================================= */
+
+/* 1. Esconder la cajita roja y negra nativa de Streamlit por completo */
+div[data-testid="stCheckbox"] label > div:not(:has([data-testid="stMarkdownContainer"])),
+div[data-testid="stCheckbox"] label > span {
+    display: none !important;
+}
+
+div[data-testid="stCheckbox"] input[type="checkbox"] {
+    position: absolute !important;
+    opacity: 0 !important; /* Mantiene la funcionalidad de click, pero invisible */
+}
+
+/* 2. Alinear el contenedor de texto para preparar nuestro propio checkbox */
+div[data-testid="stCheckbox"] div[data-testid="stMarkdownContainer"] {
+    display: flex !important;
+    align-items: center !important;
+    cursor: pointer !important;
+}
+div[data-testid="stCheckbox"] div[data-testid="stMarkdownContainer"] p {
+    margin: 0 !important; /* Quita espacios extra alrededor del texto */
+}
+
+/* 3. DIBUJAR NUESTRO PROPIO CHECKBOX (Estado: NO seleccionado) */
+div[data-testid="stCheckbox"] label:has(input[type="checkbox"]:not(:checked)) div[data-testid="stMarkdownContainer"]::before {
+    content: "";
+    display: block;
+    width: 20px;
+    height: 20px;
+    background-color: #FFFFFF;
+    border: 2px solid #000000;
+    border-radius: 4px;
+    margin-right: 12px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+/* 4. DIBUJAR NUESTRO PROPIO CHECKBOX (Estado: SÍ seleccionado) */
+div[data-testid="stCheckbox"] label:has(input[type="checkbox"]:checked) div[data-testid="stMarkdownContainer"]::before {
+    content: "✓";
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background-color: #4CAF50;
+    border: 2px solid #000000;
+    border-radius: 4px;
+    color: #FFFFFF;
+    font-weight: 800;
+    font-size: 16px;
+    margin-right: 12px;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # --- SVGS FOR LABELS ---
-svg_people = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7D7D7D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>'
+svg_people = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7D7D7D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>'
 svg_leaf = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7D7D7D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"></path></svg>'
 
 # --- HTML HEADERS ---
@@ -206,48 +264,93 @@ else:
                     companion_names.append(c_full)
                     party_members.append({"name": c_full, "df_idx": i})
 
-        current_status = str(matched_row.get('ESTATUS', '')).strip()
+        # --- NUEVA LÓGICA: EVALUAR A TODA LA FAMILIA ---
+        confirmed_names = []
+        canceled_names = []
+        
+        for member in party_members:
+            # Buscar el estatus de cada persona individualmente en el DataFrame
+            status = str(df.loc[member["df_idx"], 'ESTATUS']).strip()
+            if "Confirmado" in status:
+                confirmed_names.append(member["name"])
+            elif "Cancelado" in status:
+                canceled_names.append(member["name"])
 
-        if "Confirmado" in current_status:
+        # CASO 1: Si al menos UNA persona va a asistir
+        if len(confirmed_names) > 0:
             with st.container(border=True):
                 st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
                 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
                 
-                if companion_names:
-                    names_str = format_names_spanish(companion_names)
-                    msg = f"Tu asistencia y la de {names_str} ya ha sido confirmada."
+                # Mensaje dinámico dependiendo de si el invitado principal asiste o no
+                if main_guest_name in confirmed_names:
+                    if len(confirmed_names) == 1:
+                        msg = "Tu asistencia ya ha sido confirmada."
+                    else:
+                        others = [name for name in confirmed_names if name != main_guest_name]
+                        names_str = format_names_spanish(others)
+                        msg = f"Tu asistencia y la de {names_str} ya ha sido confirmada."
                 else:
-                    msg = "Tu asistencia ya ha sido confirmada."
+                    names_str = format_names_spanish(confirmed_names)
+                    msg = f"Hemos recibido la respuesta. La asistencia de {names_str} ya ha sido confirmada."
 
+                # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
+                # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
+                cancel_msg = ""
+                if len(canceled_names) > 0:
+                    if main_guest_name in canceled_names:
+                        if len(canceled_names) == 1:
+                            # Solo canceló el invitado principal
+                            cancel_msg = "<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú no puedas acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
+                        else:
+                            # Canceló el invitado principal Y alguien más
+                            others_canceled = [name for name in canceled_names if name != main_guest_name]
+                            cancel_str = format_names_spanish(others_canceled)
+                            cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú y {cancel_str} no puedan acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
+                    else:
+                        # El invitado principal asiste, pero otros cancelaron
+                        # El invitado principal asiste, pero otros cancelaron
+                        cancel_str = format_names_spanish(canceled_names)
+                        pueda_verb = "puedan" if len(canceled_names) > 1 else "pueda"
+                        cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos que {cancel_str} no {pueda_verb} acompañarnos.</i></span>"
                 st.markdown(f"""
                     <div class="error-text" style="color: #4A4A4A; font-size: 1.2rem; font-family: 'Playfair Display', serif;">
-                        {msg}<br><br>
+                        {msg}
+                        {cancel_msg}<br><br>
                         <b>¡Gracias por confirmar! ✨</b><br>
-                        Estamos muy emocionados y nos encantará compartir este día tan especial con ustedes.
+                        Estamos muy emocionados y nos encantará compartir este día tan especial.
                     </div>
                 """, unsafe_allow_html=True)
 
-        elif "Cancelado" in current_status:
+        # CASO 2: Si TODOS cancelaron
+        elif len(canceled_names) == len(party_members) and len(party_members) > 0:
             with st.container(border=True):
                 st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
                 st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
                 
-                if companion_names:
-                    names_str = format_names_spanish(companion_names)
+                if len(party_members) > 1:
+                    others = [m["name"] for m in party_members if m["name"] != main_guest_name]
+                    names_str = format_names_spanish(others)
                     msg = f"Hemos recibido tu respuesta y la de {names_str}."
+                    # Plural: La familia no puede ir, pero "tú" nos avisaste
+                    lamento_msg = "Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
                 else:
                     msg = "Hemos recibido tu respuesta."
+                    # Singular: Tú no puedes ir y tú nos avisaste
+                    lamento_msg = "Lamentamos mucho que no puedas acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
 
                 st.markdown(f"""
                     <div class="error-text" style="color: #4A4A4A; font-size: 1.1rem; font-family: 'Playfair Display', serif;">
                         {msg}<br><br>
                         <b>Gracias por avisarnos. 🤍</b><br>
-                        Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber.
+                        {lamento_msg}
                     </div>
                 """, unsafe_allow_html=True)
 
+        # CASO 3: Nadie ha respondido aún -> Mostrar el formulario
         else:
             with st.container(border=True):
+                # (Aquí debe quedarse el resto de tu código que pinta los botones y checkboxes)
                 st.markdown('<div class="guest-role">INVITADO PRINCIPAL</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="guest-name-large">{main_guest_name}</div>', unsafe_allow_html=True)
                 
@@ -263,7 +366,7 @@ else:
 
                 # 1. Define dynamic display text based on guest count (n)
                 question_text = "¿Podrán acompañarnos?" if n > 1 else "¿Podrás acompañarnos?"
-                yes_label = "✓ Sí, confirmamos" if n > 1 else "✓ Sí, confirmo"
+                yes_label = "✓ Sí, continuar" if n > 1 else "✓ Sí, continuar"
                 no_label = "✗ No podremos" if n > 1 else "✗ No podré"
 
                 # 2. Keep the state variables static so you don't break your downstream 'if' statements
@@ -305,8 +408,7 @@ else:
                 
                 if attendance == "Sí, confirmamos":
                     st.write("") 
-                    st.markdown(f'<div class="form-label">{svg_people} Confirma asistencia y restricciones por persona:</div>', unsafe_allow_html=True)
-                    
+                    st.markdown(f'<div class="form-label" style="font-size: 1.15rem; margin-top: 15px; margin-bottom: 15px;">{svg_people} Confirma asistencia y restricciones por persona:</div>', unsafe_allow_html=True)                    
                     # --- DYNAMIC PER-PERSON UI LOOP ---
                     attendance_results = {}
                     vegan_results = {}
@@ -321,8 +423,7 @@ else:
                         is_going_state = st.session_state[chk_key]
                         
                         with st.container(border=True): 
-                            label = f"**{member['name']}** asistirá" if is_going_state else f"{member['name']} no asistirá"
-                            
+                            label = f"**{member['name']}**"                            
                             is_going = st.checkbox(label, key=chk_key)
                             attendance_results[member["df_idx"]] = is_going
                             
