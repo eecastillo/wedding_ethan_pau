@@ -261,20 +261,45 @@ else:
                     
                 st.markdown('<div class="custom-divider" style="margin-bottom: 25px;"><div class="dot"></div></div>', unsafe_allow_html=True)
 
-                st.markdown('<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">¿Podrán acompañarnos?</div>', unsafe_allow_html=True)
+                # 1. Define dynamic display text based on guest count (n)
+                question_text = "¿Podrán acompañarnos?" if n > 1 else "¿Podrás acompañarnos?"
+                yes_label = "✓ Sí, confirmamos" if n > 1 else "✓ Sí, confirmo"
+                no_label = "✗ No podremos" if n > 1 else "✗ No podré"
+
+                # 2. Keep the state variables static so you don't break your downstream 'if' statements
+                yes_state_val = "Sí, confirmamos"
+                no_state_val = "No, lamentablemente no podremos"
+
+                # 3. Render the dynamic markdown question
+                st.markdown(f'<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">{question_text}</div>', unsafe_allow_html=True)
 
                 def set_attendance(status):
                     st.session_state.attendance_selection = status
 
                 _, col1, col2, _ = st.columns([1, 4, 4, 1])
 
+                # 4. Render the buttons with dynamic labels but static args
                 with col1:
-                    is_yes = st.session_state.attendance_selection == "Sí, confirmamos"
-                    st.button("✓ Sí, confirmamos", type="primary" if is_yes else "secondary", key="btn_yes", on_click=set_attendance, args=("Sí, confirmamos",), use_container_width=True)
+                    is_yes = st.session_state.attendance_selection == yes_state_val
+                    st.button(
+                        yes_label, 
+                        type="primary" if is_yes else "secondary", 
+                        key="btn_yes", 
+                        on_click=set_attendance, 
+                        args=(yes_state_val,), 
+                        use_container_width=True
+                    )
 
                 with col2:
-                    is_no = st.session_state.attendance_selection == "No, lamentablemente no podremos"
-                    st.button("✗ No podremos", type="primary" if is_no else "secondary", key="btn_no", on_click=set_attendance, args=("No, lamentablemente no podremos",), use_container_width=True)
+                    is_no = st.session_state.attendance_selection == no_state_val
+                    st.button(
+                        no_label, 
+                        type="primary" if is_no else "secondary", 
+                        key="btn_no", 
+                        on_click=set_attendance, 
+                        args=(no_state_val,), 
+                        use_container_width=True
+                    )
 
                 attendance = st.session_state.attendance_selection
                 
@@ -291,7 +316,7 @@ else:
                         chk_key = f"chk_{member['df_idx']}"
                         
                         if chk_key not in st.session_state:
-                            st.session_state[chk_key] = True
+                            st.session_state[chk_key] = False
                             
                         is_going_state = st.session_state[chk_key]
                         
