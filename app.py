@@ -279,9 +279,9 @@ canceled_names = []
 
 for member in party_members:
     status = str(member["rsvp_status"]).strip()
-    if "Confirmado" in status:
+    if "confirmed" in status:
         confirmed_names.append(member["name"])
-    elif "Cancelado" in status:
+    elif "canceled" in status:
         canceled_names.append(member["name"])
 
 # CASO 1: Si al menos UNA persona va a asistir
