@@ -1,9 +1,8 @@
 import streamlit as st
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+from supabase import create_client, Client
 from streamlit_extras.let_it_rain import rain
 from datetime import datetime, timezone, timedelta
+import uuid
 
 # Define your deadline: Year, Month, Day, Hour, Minute
 DEADLINE = datetime(2026, 8, 26, 20, 56, 0)
@@ -201,312 +200,326 @@ else:
     """, unsafe_allow_html=True)
 
 # --- REAL DATA ---
-scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-client = gspread.authorize(creds)
-sheet = client.open("invitados").sheet1
+#scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+#creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+#client = gspread.authorize(creds)
+#sheet = client.open("invitados").sheet1
+#
+#@st.cache_data(ttl=600) 
+#def load_data():
+#    data = sheet.get_all_records()
+#    return pd.DataFrame(data)
 
-@st.cache_data(ttl=600) 
-def load_data():
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
-
-df = load_data()
-df['FULL_NAME'] = df['NOMBRE(S)'].astype(str).str.strip() + " " + df['APELLIDO(S)'].astype(str).str.strip()
+#df = load_data()
+#df['FULL_NAME'] = df['NOMBRE(S)'].astype(str).str.strip() + " " + df['APELLIDO(S)'].astype(str).str.strip()
 
 # ==========================================
 # APP LOGIC - ROUTING BY URL PARAMETER
 # ==========================================
 
 query_params = st.query_params
-guest_id = query_params.get("id")
+guest_url_token = query_params.get("id")
 
-if not guest_id:
+def is_valid_uuid(val):
+    """Strictly checks if the provided string is a valid UUID v4."""
+    try:
+        # If it's not a valid UUID format, this throws a ValueError
+        uuid_obj = uuid.UUID(str(val), version=4)
+        return str(uuid_obj) == str(val)
+    except ValueError:
+        return False
+
+# If there is no ID, or if someone tried to type "?id=CAXH6" or "?id=DROP TABLE guests"
+if not guest_url_token or not is_valid_uuid(guest_url_token):
     st.markdown('<div class="error-text">¡Hola! Para confirmar tu asistencia, por favor utiliza el enlace personalizado que te enviamos por mensaje. 🤍</div>', unsafe_allow_html=True)
+    st.stop() # Halts all execution. The database is never touched.
+
+
+# --- SUPABASE INITIALIZATION ---
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# --- FETCH FROM SUPABASE ---
+@st.cache_data(ttl=60)
+def fetch_party(url_id):
+    # Pulls all guests that share this specific URL ID
+    response = supabase.table("guests").select("*").eq("party_id", url_id).execute()
+    return response.data
+
+party_data = fetch_party(guest_url_token)
+
+if not party_data:
+    st.markdown('<div class="error-text">No pudimos encontrar tu invitación. Por favor verifica que el enlace sea correcto o comunícate con nosotros.</div>', unsafe_allow_html=True)
+    st.stop()
+
+# --- PREPARE ALL PARTY MEMBERS ---
+# Find the lead guest (assuming you have a boolean column 'is_party_lead')
+lead_guest = next((g for g in party_data if g.get('is_party_lead')), party_data[0])
+main_guest_name = f"{lead_guest['first_name']} {lead_guest['last_name']}".strip()
+
+party_members = []
+companion_names = []
+
+for person in party_data:
+    full_name = f"{person['first_name']} {person['last_name']}".strip()
+    # We store the unique database 'id' instead of the DataFrame index
+    party_members.append({"name": full_name, "db_id": person["guest_id"], "rsvp_status": person.get("rsvp_status", "")})
+    
+    if person["guest_id"] != lead_guest["guest_id"]:
+        companion_names.append(full_name)
+
+# --- NUEVA LÓGICA: EVALUAR A TODA LA FAMILIA ---
+confirmed_names = []
+canceled_names = []
+
+for member in party_members:
+    status = str(member["rsvp_status"]).strip()
+    if "Confirmado" in status:
+        confirmed_names.append(member["name"])
+    elif "Cancelado" in status:
+        canceled_names.append(member["name"])
+
+# CASO 1: Si al menos UNA persona va a asistir
+if len(confirmed_names) > 0:
+    with st.container(border=True):
+        st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
+        
+        # Mensaje dinámico dependiendo de si el invitado principal asiste o no
+        if main_guest_name in confirmed_names:
+            if len(confirmed_names) == 1:
+                msg = "Tu asistencia ya ha sido confirmada."
+            else:
+                others = [name for name in confirmed_names if name != main_guest_name]
+                names_str = format_names_spanish(others)
+                msg = f"Tu asistencia y la de {names_str} ya ha sido confirmada."
+        else:
+            names_str = format_names_spanish(confirmed_names)
+            msg = f"Hemos recibido la respuesta. La asistencia de {names_str} ya ha sido confirmada."
+
+        # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
+        # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
+        cancel_msg = ""
+        if len(canceled_names) > 0:
+            if main_guest_name in canceled_names:
+                if len(canceled_names) == 1:
+                    # Solo canceló el invitado principal
+                    cancel_msg = "<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú no puedas acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
+                else:
+                    # Canceló el invitado principal Y alguien más
+                    others_canceled = [name for name in canceled_names if name != main_guest_name]
+                    cancel_str = format_names_spanish(others_canceled)
+                    cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú y {cancel_str} no puedan acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
+            else:
+                # El invitado principal asiste, pero otros cancelaron
+                # El invitado principal asiste, pero otros cancelaron
+                cancel_str = format_names_spanish(canceled_names)
+                pueda_verb = "puedan" if len(canceled_names) > 1 else "pueda"
+                cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos que {cancel_str} no {pueda_verb} acompañarnos.</i></span>"
+        st.markdown(f"""
+            <div class="error-text" style="color: #4A4A4A; font-size: 1.2rem; font-family: 'Playfair Display', serif;">
+                {msg}
+                {cancel_msg}<br><br>
+                <b>¡Gracias por confirmar! ✨</b><br>
+                Estamos muy emocionados y nos encantará compartir este día tan especial.
+            </div>
+        """, unsafe_allow_html=True)
+
+# CASO 2: Si TODOS cancelaron
+elif len(canceled_names) == len(party_members) and len(party_members) > 0:
+    with st.container(border=True):
+        st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
+        
+        if len(party_members) > 1:
+            others = [m["name"] for m in party_members if m["name"] != main_guest_name]
+            names_str = format_names_spanish(others)
+            msg = f"Hemos recibido tu respuesta y la de {names_str}."
+            # Plural: La familia no puede ir, pero "tú" nos avisaste
+            lamento_msg = "Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
+        else:
+            msg = "Hemos recibido tu respuesta."
+            # Singular: Tú no puedes ir y tú nos avisaste
+            lamento_msg = "Lamentamos mucho que no puedas acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
+
+        st.markdown(f"""
+            <div class="error-text" style="color: #4A4A4A; font-size: 1.1rem; font-family: 'Playfair Display', serif;">
+                {msg}<br><br>
+                <b>Gracias por avisarnos. 🤍</b><br>
+                {lamento_msg}
+            </div>
+        """, unsafe_allow_html=True)
+
+# CASO 3: Nadie ha respondido aún -> Mostrar el formulario
 else:
-    if 'ID_UNICO' not in df.columns:
-        st.error("Error: La columna 'ID_UNICO' no existe en Google Sheets.")
-        st.stop()
-        
-    # 1. Sanitize the URL parameter (remove spaces, force uppercase)
-    clean_guest_id = str(guest_id).strip().upper()
-    
-    # 2. Sanitize the Google Sheets column (remove spaces, force uppercase)
-    df['ID_UNICO_CLEAN'] = df['ID_UNICO'].astype(str).str.strip().str.upper()
-    
-    # 3. Match them securely
-    match_condition = df['ID_UNICO_CLEAN'] == clean_guest_id
-    matches = df[match_condition]
-    
-    if matches.empty:
-        st.markdown('<div class="error-text">No pudimos encontrar tu invitación. Por favor verifica que el enlace sea correcto o comunícate con nosotros.</div>', unsafe_allow_html=True)
-    else:
-        matched_idx = matches.index[0]
-        matched_row = matches.iloc[0]
-        main_guest_name = matched_row['FULL_NAME']
-        
-        try:
-            n = int(matched_row['# DE PERSONAS'])
-        except (ValueError, TypeError):
-            n = 1 
-            
-        # --- PREPARE ALL PARTY MEMBERS ---
-        party_members = [{"name": main_guest_name, "df_idx": matched_idx}]
-        companion_names = []
+    with st.container(border=True):
+        # (Aquí debe quedarse el resto de tu código que pinta los botones y checkboxes)
+        st.markdown('<div class="guest-role">INVITADO PRINCIPAL</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="guest-name-large">{main_guest_name}</div>', unsafe_allow_html=True)
+
+        n = len(party_members)
         
         if n > 1:
-            max_idx = min(matched_idx + n - 1, len(df) - 1)
-            for i in range(matched_idx + 1, max_idx + 1):
-                c_fn = str(df.loc[i, 'NOMBRE(S)']).strip()
-                c_ln = str(df.loc[i, 'APELLIDO(S)']).strip()
-                c_full = f"{c_fn} {c_ln}".strip()
-                if c_full:
-                    companion_names.append(c_full)
-                    party_members.append({"name": c_full, "df_idx": i})
+            st.markdown('<div class="guest-role">ACOMPAÑANTES</div>', unsafe_allow_html=True)
+            pills_html = '<div class="companion-container">'
+            for name in companion_names:
+                pills_html += f'<div class="companion-pill">{name}</div>'
+            pills_html += '</div>'
+            st.markdown(pills_html, unsafe_allow_html=True)
+            
+        st.markdown('<div class="custom-divider" style="margin-bottom: 25px;"><div class="dot"></div></div>', unsafe_allow_html=True)
 
-        # --- NUEVA LÓGICA: EVALUAR A TODA LA FAMILIA ---
-        confirmed_names = []
-        canceled_names = []
+        # 1. Define dynamic display text based on guest count (n)
+        question_text = "¿Podrán acompañarnos?" if n > 1 else "¿Podrás acompañarnos?"
+        yes_label = "✓ Sí, continuar" if n > 1 else "✓ Sí, continuar"
+        no_label = "✗ No podremos" if n > 1 else "✗ No podré"
+
+        # 2. Keep the state variables static so you don't break your downstream 'if' statements
+        yes_state_val = "Sí, confirmamos"
+        no_state_val = "No, lamentablemente no podremos"
+
+        # 3. Render the dynamic markdown question
+        st.markdown(f'<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">{question_text}</div>', unsafe_allow_html=True)
+
+        def set_attendance(status):
+            st.session_state.attendance_selection = status
+
+        _, col1, col2, _ = st.columns([1, 4, 4, 1])
+
+        # 4. Render the buttons with dynamic labels but static args
+        with col1:
+            is_yes = st.session_state.attendance_selection == yes_state_val
+            st.button(
+                yes_label, 
+                type="primary" if is_yes else "secondary", 
+                key="btn_yes", 
+                on_click=set_attendance, 
+                args=(yes_state_val,), 
+                use_container_width=True
+            )
+
+        with col2:
+            is_no = st.session_state.attendance_selection == no_state_val
+            st.button(
+                no_label, 
+                type="primary" if is_no else "secondary", 
+                key="btn_no", 
+                on_click=set_attendance, 
+                args=(no_state_val,), 
+                use_container_width=True
+            )
+
+        attendance = st.session_state.attendance_selection
         
-        for member in party_members:
-            # Buscar el estatus de cada persona individualmente en el DataFrame
-            status = str(df.loc[member["df_idx"], 'ESTATUS']).strip()
-            if "Confirmado" in status:
-                confirmed_names.append(member["name"])
-            elif "Cancelado" in status:
-                canceled_names.append(member["name"])
-
-        # CASO 1: Si al menos UNA persona va a asistir
-        if len(confirmed_names) > 0:
-            with st.container(border=True):
-                st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
-                st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
+        if attendance == "Sí, confirmamos":
+            st.write("") 
+            st.markdown(f'<div class="form-label" style="font-size: 1.15rem; margin-top: 15px; margin-bottom: 15px;">{svg_people} Confirma asistencia y restricciones por persona:</div>', unsafe_allow_html=True)                    
+            # --- DYNAMIC PER-PERSON UI LOOP ---
+            attendance_results = {}
+            vegan_results = {}
+            allergy_results = {}
+            
+            for member in party_members:
+                chk_key = f"chk_{member['db_id']}"
                 
-                # Mensaje dinámico dependiendo de si el invitado principal asiste o no
-                if main_guest_name in confirmed_names:
-                    if len(confirmed_names) == 1:
-                        msg = "Tu asistencia ya ha sido confirmada."
-                    else:
-                        others = [name for name in confirmed_names if name != main_guest_name]
-                        names_str = format_names_spanish(others)
-                        msg = f"Tu asistencia y la de {names_str} ya ha sido confirmada."
-                else:
-                    names_str = format_names_spanish(confirmed_names)
-                    msg = f"Hemos recibido la respuesta. La asistencia de {names_str} ya ha sido confirmada."
-
-                # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
-                # Pequeño mensaje para mencionar a los que no asisten (Buen toque de UX)
-                cancel_msg = ""
-                if len(canceled_names) > 0:
-                    if main_guest_name in canceled_names:
-                        if len(canceled_names) == 1:
-                            # Solo canceló el invitado principal
-                            cancel_msg = "<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú no puedas acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
-                        else:
-                            # Canceló el invitado principal Y alguien más
-                            others_canceled = [name for name in canceled_names if name != main_guest_name]
-                            cancel_str = format_names_spanish(others_canceled)
-                            cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos mucho que tú y {cancel_str} no puedan acompañarnos, pero nos alegra que los demás sí asistan.</i></span>"
-                    else:
-                        # El invitado principal asiste, pero otros cancelaron
-                        # El invitado principal asiste, pero otros cancelaron
-                        cancel_str = format_names_spanish(canceled_names)
-                        pueda_verb = "puedan" if len(canceled_names) > 1 else "pueda"
-                        cancel_msg = f"<br><br><span style='font-size: 0.95rem;'><i>Lamentamos que {cancel_str} no {pueda_verb} acompañarnos.</i></span>"
-                st.markdown(f"""
-                    <div class="error-text" style="color: #4A4A4A; font-size: 1.2rem; font-family: 'Playfair Display', serif;">
-                        {msg}
-                        {cancel_msg}<br><br>
-                        <b>¡Gracias por confirmar! ✨</b><br>
-                        Estamos muy emocionados y nos encantará compartir este día tan especial.
-                    </div>
-                """, unsafe_allow_html=True)
-
-        # CASO 2: Si TODOS cancelaron
-        elif len(canceled_names) == len(party_members) and len(party_members) > 0:
-            with st.container(border=True):
-                st.markdown(f'<div class="guest-name-large">¡Hola, {main_guest_name}!</div>', unsafe_allow_html=True)
-                st.markdown('<div class="custom-divider"><div class="dot"></div></div>', unsafe_allow_html=True)
-                
-                if len(party_members) > 1:
-                    others = [m["name"] for m in party_members if m["name"] != main_guest_name]
-                    names_str = format_names_spanish(others)
-                    msg = f"Hemos recibido tu respuesta y la de {names_str}."
-                    # Plural: La familia no puede ir, pero "tú" nos avisaste
-                    lamento_msg = "Lamentamos mucho que no puedan acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
-                else:
-                    msg = "Hemos recibido tu respuesta."
-                    # Singular: Tú no puedes ir y tú nos avisaste
-                    lamento_msg = "Lamentamos mucho que no puedas acompañarnos, pero agradecemos sinceramente que nos lo hicieras saber."
-
-                st.markdown(f"""
-                    <div class="error-text" style="color: #4A4A4A; font-size: 1.1rem; font-family: 'Playfair Display', serif;">
-                        {msg}<br><br>
-                        <b>Gracias por avisarnos. 🤍</b><br>
-                        {lamento_msg}
-                    </div>
-                """, unsafe_allow_html=True)
-
-        # CASO 3: Nadie ha respondido aún -> Mostrar el formulario
-        else:
-            with st.container(border=True):
-                # (Aquí debe quedarse el resto de tu código que pinta los botones y checkboxes)
-                st.markdown('<div class="guest-role">INVITADO PRINCIPAL</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="guest-name-large">{main_guest_name}</div>', unsafe_allow_html=True)
-                
-                if n > 1:
-                    st.markdown('<div class="guest-role">ACOMPAÑANTES</div>', unsafe_allow_html=True)
-                    pills_html = '<div class="companion-container">'
-                    for name in companion_names:
-                        pills_html += f'<div class="companion-pill">{name}</div>'
-                    pills_html += '</div>'
-                    st.markdown(pills_html, unsafe_allow_html=True)
+                if chk_key not in st.session_state:
+                    st.session_state[chk_key] = False
                     
-                st.markdown('<div class="custom-divider" style="margin-bottom: 25px;"><div class="dot"></div></div>', unsafe_allow_html=True)
-
-                # 1. Define dynamic display text based on guest count (n)
-                question_text = "¿Podrán acompañarnos?" if n > 1 else "¿Podrás acompañarnos?"
-                yes_label = "✓ Sí, continuar" if n > 1 else "✓ Sí, continuar"
-                no_label = "✗ No podremos" if n > 1 else "✗ No podré"
-
-                # 2. Keep the state variables static so you don't break your downstream 'if' statements
-                yes_state_val = "Sí, confirmamos"
-                no_state_val = "No, lamentablemente no podremos"
-
-                # 3. Render the dynamic markdown question
-                st.markdown(f'<div class="form-label" style="justify-content: center; font-size: 1.1rem; margin-bottom: 20px; font-weight: 500; color: #4A4A4A;">{question_text}</div>', unsafe_allow_html=True)
-
-                def set_attendance(status):
-                    st.session_state.attendance_selection = status
-
-                _, col1, col2, _ = st.columns([1, 4, 4, 1])
-
-                # 4. Render the buttons with dynamic labels but static args
-                with col1:
-                    is_yes = st.session_state.attendance_selection == yes_state_val
-                    st.button(
-                        yes_label, 
-                        type="primary" if is_yes else "secondary", 
-                        key="btn_yes", 
-                        on_click=set_attendance, 
-                        args=(yes_state_val,), 
-                        use_container_width=True
-                    )
-
-                with col2:
-                    is_no = st.session_state.attendance_selection == no_state_val
-                    st.button(
-                        no_label, 
-                        type="primary" if is_no else "secondary", 
-                        key="btn_no", 
-                        on_click=set_attendance, 
-                        args=(no_state_val,), 
-                        use_container_width=True
-                    )
-
-                attendance = st.session_state.attendance_selection
+                is_going_state = st.session_state[chk_key]
                 
-                if attendance == "Sí, confirmamos":
-                    st.write("") 
-                    st.markdown(f'<div class="form-label" style="font-size: 1.15rem; margin-top: 15px; margin-bottom: 15px;">{svg_people} Confirma asistencia y restricciones por persona:</div>', unsafe_allow_html=True)                    
-                    # --- DYNAMIC PER-PERSON UI LOOP ---
-                    attendance_results = {}
-                    vegan_results = {}
-                    allergy_results = {}
+                with st.container(border=True): 
+                    label = f"**{member['name']}**"                            
+                    is_going = st.checkbox(label, key=chk_key)
+                    attendance_results[member["db_id"]] = is_going
                     
+                    if is_going:
+                        st.write("") # Small visual gap
+                        col_v, col_a = st.columns([1, 1.5]) 
+                        with col_v:
+                            vegan_results[member["db_id"]] = st.checkbox("🌱 Deseo menú vegano", key=f"veg_{member['db_id']}")
+                        with col_a:
+                            allergy_results[member["db_id"]] = st.text_input(
+                                "Alergias o Restricciones Alimenticias", 
+                                placeholder="Ej: Nueces, mariscos, gluten...", 
+                                key=f"alg_{member['db_id']}"
+                            )
+                    else:
+                        vegan_results[member["db_id"]] = False
+                        allergy_results[member["db_id"]] = ""
+
+            st.write("") 
+            
+            # Confirmados sigue siendo necesario para habilitar/deshabilitar el botón de submit
+            confirmados = sum(attendance_results.values())
+
+            # --- SUBMISSION LOGIC ---
+            if confirmados == 0:
+                st.warning("⚠️ Debes seleccionar al menos a un invitado. Si nadie asistirá, por favor cambia tu respuesta principal a 'No podremos'.")
+            
+            submit = st.button(
+                "✓ Confirmar mi asistencia", 
+                key="submit_yes", 
+                use_container_width=True, 
+                type="primary",
+                disabled=(confirmados == 0)
+            )
+            
+            if submit:
+                if datetime.now() >= DEADLINE:
+                    st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
+                    st.stop()
+                else:
+                    # GUARDADO INDIVIDUAL: Update via Supabase API
                     for member in party_members:
-                        chk_key = f"chk_{member['df_idx']}"
+                        db_id = member["db_id"]
                         
-                        if chk_key not in st.session_state:
-                            st.session_state[chk_key] = False
-                            
-                        is_going_state = st.session_state[chk_key]
+                        is_going = attendance_results.get(db_id, False)
+                        is_vegan = vegan_results.get(db_id, False)
+                        allergy_text = allergy_results.get(db_id, "").strip()
                         
-                        with st.container(border=True): 
-                            label = f"**{member['name']}**"                            
-                            is_going = st.checkbox(label, key=chk_key)
-                            attendance_results[member["df_idx"]] = is_going
-                            
-                            if is_going:
-                                st.write("") # Small visual gap
-                                col_v, col_a = st.columns([1, 1.5]) 
-                                with col_v:
-                                    vegan_results[member["df_idx"]] = st.checkbox("🌱 Deseo menú vegano", key=f"veg_{member['df_idx']}")
-                                with col_a:
-                                    allergy_results[member["df_idx"]] = st.text_input(
-                                        "Alergias o Restricciones Alimenticias", 
-                                        placeholder="Ej: Nueces, mariscos, gluten...", 
-                                        key=f"alg_{member['df_idx']}"
-                                    )
-                            else:
-                                vegan_results[member["df_idx"]] = False
-                                allergy_results[member["df_idx"]] = ""
+                        update_payload = {
+                            "rsvp_status": "confirmed" if is_going else "canceled",
+                            #"confirmacion": 1 if is_going else 0,
+                            "is_vegan": (is_going and is_vegan),
+                            "dietary_comments": f"Alergias: {allergy_text}" if (is_going and allergy_text) else ""
+                        }
+                        
+                        # Push update to Supabase
+                        supabase.table("guests").update(update_payload).eq("guest_id", db_id).execute()
 
-                    st.write("") 
+                    fetch_party.clear() # Clear the cache to reflect updates
+                    st.success("¡Tu confirmación ha sido guardada exitosamente!")
+                    rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
                     
-                    # Confirmados sigue siendo necesario para habilitar/deshabilitar el botón de submit
-                    confirmados = sum(attendance_results.values())
-
-                    # --- SUBMISSION LOGIC ---
-                    if confirmados == 0:
-                        st.warning("⚠️ Debes seleccionar al menos a un invitado. Si nadie asistirá, por favor cambia tu respuesta principal a 'No podremos'.")
+        elif attendance == "No, lamentablemente no podremos":
+            st.write("") 
+            submit_cancel = st.button("✗ Confirmar mi cancelación", key="submit_no", use_container_width=True, type="primary")
+            
+            if submit_cancel:
+                if datetime.now() >= DEADLINE:
+                    st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
+                    st.stop()
+                else:
+                    # CANCELACIÓN INDIVIDUAL: Update via Supabase API
+                    for member in party_members:
+                        db_id = member["db_id"]
+                        
+                        update_payload = {
+                            "rsvp_status": "canceled",
+                            #"confirmacion": 0,
+                            "is_vegan": False,
+                            "dietary_comments": ""
+                        }
+                        
+                        supabase.table("guests").update(update_payload).eq("guest_id", db_id).execute()
                     
-                    submit = st.button(
-                        "✓ Confirmar mi asistencia", 
-                        key="submit_yes", 
-                        use_container_width=True, 
-                        type="primary",
-                        disabled=(confirmados == 0)
-                    )
-                    
-                    if submit:
-                        if datetime.now() >= DEADLINE:
-                            st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
-                            st.stop()
-                        else:
-                            # GUARDADO INDIVIDUAL: Escribir fila por fila en el spreadsheet
-                            for member in party_members:
-                                idx = member["df_idx"]
-                                gsheet_row = idx + 2 
-                                
-                                is_going = attendance_results.get(idx, False)
-                                is_vegan = vegan_results.get(idx, False)
-                                allergy_text = allergy_results.get(idx, "").strip()
-                                
-                                val_status = "Confirmado_web" if is_going else "Cancelado_web"
-                                val_conf = 1 if is_going else 0
-                                val_veg = 1 if (is_going and is_vegan) else 0
-                                val_com = f"Alergias: {allergy_text}" if (is_going and allergy_text) else ""
-                                
-                                # Inyectar valores precisos para esta persona en específico
-                                sheet.update_cell(gsheet_row, 5, val_status)
-                                sheet.update_cell(gsheet_row, 6, val_conf)
-                                sheet.update_cell(gsheet_row, 7, val_veg)
-                                sheet.update_cell(gsheet_row, 8, val_com)
-
-                            load_data.clear()
-                            st.success("¡Tu confirmación ha sido guardada exitosamente!")
-                            rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
-                            
-                elif attendance == "No, lamentablemente no podremos":
-                    st.write("") 
-                    submit_cancel = st.button("✗ Confirmar mi cancelación", key="submit_no", use_container_width=True, type="primary")
-                    
-                    if submit_cancel:
-                        if datetime.now() >= DEADLINE:
-                            st.error("Lo sentimos, el tiempo para confirmar ha expirado.")
-                            st.stop()
-                        else:
-                            # CANCELACIÓN INDIVIDUAL: Escribir '0' fila por fila
-                            for member in party_members:
-                                gsheet_row = member["df_idx"] + 2
-                                sheet.update_cell(gsheet_row, 5, "Cancelado_web")
-                                sheet.update_cell(gsheet_row, 6, 0)
-                                sheet.update_cell(gsheet_row, 7, 0)
-                                sheet.update_cell(gsheet_row, 8, "")
-                            
-                            load_data.clear()
-                            st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
+                    fetch_party.clear() # Clear the cache to reflect updates
+                    st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
 
 # Custom Footer
 st.markdown('<div class="footer">Con amor, los novios ♥</div>', unsafe_allow_html=True)
