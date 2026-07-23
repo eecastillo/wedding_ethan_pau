@@ -7,24 +7,52 @@ import json
 import os
 from datetime import datetime
 from connectors.whatsapp import send_whatsapp_template
-from supabase import create_client, Client # <-- ADD THIS LINE
+from supabase import create_client, Client
 
-# --- 1. AUTHENTICATION ---
+
+# --- 1. SUPABASE INITIALIZATION ---
+#@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
+# --- 2. AUTHENTICATION (SUPABASE) ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "user" not in st.session_state:
+    st.session_state.user = None
 
 if not st.session_state.authenticated:
     st.markdown('<h2 style="text-align:center; font-family:Playfair Display;">Acceso Restringido</h2>', unsafe_allow_html=True)
-    pw = st.text_input("Ingresa la contraseña de Administrador", type="password")
+    
+    email = st.text_input("Correo electrónico del Planner")
+    pw = st.text_input("Contraseña", type="password")
+    
     if st.button("Entrar"):
-        if pw == st.secrets["admin_password"]:
+        try:
+            # Authenticate directly via Supabase Auth
+            response = supabase.auth.sign_in_with_password({"email": email, "password": pw})
             st.session_state.authenticated = True
+            st.session_state.user = response.user
             st.rerun()
-        else:
-            st.error("Contraseña incorrecta")
-    st.stop()
+        except Exception as e:
+            st.error("Credenciales incorrectas o usuario no encontrado.")
+            
+    st.stop() # Halts rendering of the dashboard if not logged in
 
-# --- 2. CONFIG & SCHEDULER STORAGE ---
+# --- 3. SESSION MANAGEMENT (SIDEBAR) ---
+with st.sidebar:
+    st.markdown(f"**Usuario:** {st.session_state.user.email}")
+    if st.button("Cerrar Sesión"):
+        supabase.auth.sign_out()
+        st.session_state.authenticated = False
+        st.session_state.user = None
+        st.rerun()
+
+# --- 4. CONFIG & SCHEDULER STORAGE ---
 st.set_page_config(page_title="Host Dashboard", page_icon="📊", layout="centered")
 
 SCHEDULE_FILE = "blast_schedule.json"
@@ -61,46 +89,84 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. DATA LOADING ---
-scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-client = gspread.authorize(creds)
-sheet = client.open("invitados").sheet1
+# --- 4. DATA LOADING & EVENT SELECTION (SUPABASE) ---
 
+# Fetch the events belonging to the logged-in planner
 @st.cache_data(ttl=60)
-def get_data():
-    return pd.DataFrame(sheet.get_all_records())
+def get_planner_events(planner_uuid):
+    response = supabase.table("events").select("event_id, event_name, event_date").eq("planner_id", planner_uuid).execute()
+    return response.data
 
-df = get_data()
-df['# DE PERSONAS'] = pd.to_numeric(df['# DE PERSONAS'], errors='coerce').fillna(0)
+# Fetch the guests strictly for the selected event
+@st.cache_data(ttl=60)
+def get_event_guests(event_uuid):
+    response = supabase.table("guests").select("*").eq("event_id", event_uuid).execute()
+    # We load it into a Pandas DataFrame to keep your Altair charting logic intact
+    return pd.DataFrame(response.data)
 
-# --- 5. METRICS & CHART ---
+
 st.markdown('<div class="host-header">HOST DASHBOARD</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">Overview</div>', unsafe_allow_html=True)
 
-confirmed_count = int(df[df['ESTATUS'].str.contains("Confirmado", na=False)]['# DE PERSONAS'].sum())
-declined_count = int(df[df['ESTATUS'].str.contains("Cancelado", na=False)]['# DE PERSONAS'].sum())
-pending_count = int(df[~df['ESTATUS'].str.contains("Confirmado|Cancelado", na=False)]['# DE PERSONAS'].sum())
+# Require the user to be logged in
+if "user" in st.session_state and st.session_state.user:
+    planner_id = st.session_state.user.id
+    
+    # Get the planner's events
+    events_list = get_planner_events(planner_id)
+    if not events_list:
+        st.warning("No tienes eventos registrados aún. Crea uno para comenzar.")
+        st.stop()
+        
+    # Create a mapping dictionary: "Event Name (Date)" -> "event_id"
+    event_options = {f"{ev['event_name']} ({ev['event_date']})": ev['event_id'] for ev in events_list}
+    
+    # The Dropdown UI
+    selected_event_label = st.selectbox("Selecciona un Evento para visualizar:", list(event_options.keys()))
+    selected_event_id = event_options[selected_event_label]
+    
+    # Fetch the guest list for the chosen event
+    df = get_event_guests(selected_event_id)
+    
+    st.divider()
 
-m1, m2, m3 = st.columns(3)
-m1.markdown(f'<div class="metric-container"><div class="metric-value">{confirmed_count}</div><div class="metric-label">Confirmados</div></div>', unsafe_allow_html=True)
-m2.markdown(f'<div class="metric-container"><div class="metric-value">{declined_count}</div><div class="metric-label">Cancelados</div></div>', unsafe_allow_html=True)
-m3.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pendientes</div></div>', unsafe_allow_html=True)
+    # --- 5. METRICS & CHART ---
+    if df.empty:
+        st.info("No hay invitados registrados para este evento todavía.")
+    else:
+        # Standardize the column names based on Supabase schema (usually lowercase 'estatus')
+        status_col = 'rsvp_status'#'estatus' if 'estatus' in df.columns else 'ESTATUS'
+        
+        # NOTE: Since our relational database architecture creates 1 row per person, 
+        # we calculate totals by counting the rows (len) instead of summing a party size column.
+        df[status_col] = df[status_col].astype(str)
+        
+        confirmed_count = len(df[df[status_col].str.contains("confirmed", case=False, na=False)])
+        declined_count = len(df[df[status_col].str.contains("canceled", case=False, na=False)])
+        pending_count = len(df[~df[status_col].str.contains("confirmed|canceled", case=False, na=False)])
 
-chart_data = pd.DataFrame({
-    'Estado': ['Confirmados', 'Cancelados', 'Pendientes'],
-    'Personas': [confirmed_count, declined_count, pending_count]
-})
-color_scale = alt.Scale(domain=['Confirmados', 'Cancelados', 'Pendientes'], range=['#4F8C78', '#BC8F8F', '#D3D3D3'])
+        m1, m2, m3 = st.columns(3)
+        m1.markdown(f'<div class="metric-container"><div class="metric-value">{confirmed_count}</div><div class="metric-label">Confirmados</div></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="metric-container"><div class="metric-value">{declined_count}</div><div class="metric-label">Cancelados</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pendientes</div></div>', unsafe_allow_html=True)
 
-base_chart = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8).encode(
-    x=alt.X('Estado:N', sort=None, title=None, axis=alt.Axis(labelAngle=0, labelFontSize=11, labelColor='#9E9E9E')),
-    y=alt.Y('Personas:Q', title=None, axis=alt.Axis(grid=False, labels=False)),
-    color=alt.Color('Estado:N', scale=color_scale, legend=None),
-    tooltip=['Estado', 'Personas']
-).properties(height=250).configure_view(strokeOpacity=0).configure_axis(domain=False)
+        chart_data = pd.DataFrame({
+            'Estado': ['Confirmados', 'Cancelados', 'Pendientes'],
+            'Personas': [confirmed_count, declined_count, pending_count]
+        })
+        color_scale = alt.Scale(domain=['Confirmados', 'Cancelados', 'Pendientes'], range=['#4F8C78', '#BC8F8F', '#D3D3D3'])
 
-st.altair_chart(base_chart, use_container_width=True)
+        base_chart = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8).encode(
+            x=alt.X('Estado:N', sort=None, title=None, axis=alt.Axis(labelAngle=0, labelFontSize=11, labelColor='#9E9E9E')),
+            y=alt.Y('Personas:Q', title=None, axis=alt.Axis(grid=False, labels=False)),
+            color=alt.Color('Estado:N', scale=color_scale, legend=None),
+            tooltip=['Estado', 'Personas']
+        ).properties(height=250).configure_view(strokeOpacity=0).configure_axis(domain=False)
+
+        st.altair_chart(base_chart, use_container_width=True)
+
+else:
+    st.error("Por favor, inicia sesión para ver tus eventos.")
 
 # ==========================================
 # GESTIÓN DE ENVÍOS (DASHBOARD SECTION)
@@ -229,7 +295,7 @@ supabase = init_supabase()
 def fetch_supabase_intents():
     if not supabase: return []
     try:
-        response = supabase.table("guests").select("*").order("updated_at", desc=True).execute()
+        response = supabase.table("guests_data").select("*").order("updated_at", desc=True).execute()
         return response.data
     except: return []
 
