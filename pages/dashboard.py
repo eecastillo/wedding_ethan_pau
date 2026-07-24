@@ -1,3 +1,5 @@
+import uuid
+import io
 import streamlit as st
 import pandas as pd
 import gspread
@@ -127,7 +129,134 @@ if "user" in st.session_state and st.session_state.user:
     
     # Fetch the guest list for the chosen event
     df = get_event_guests(selected_event_id)
+
+    # --- 1. FILE INGESTION ---
+    st.markdown('<div class="host-header">📥 IMPORTACIÓN DE INVITADOS</div>', unsafe_allow_html=True)
+    st.write("Asegúrate de utilizar la plantilla oficial. Las columnas requeridas son: **Nombre, Apellido, Número de Personas, Teléfono de Contacto**")
+
+    uploaded_file = st.file_uploader("Sube tu lista de invitados (CSV o Excel)", type=["csv", "xlsx"])
+    if uploaded_file is not None:
+        try:
+            # Parse the file based on its extension
+            if uploaded_file.name.endswith('.csv'):
+                df_upload = pd.read_csv(uploaded_file)
+            else:
+                df_upload = pd.read_excel(uploaded_file)
+                
+            # Strict Column Validation
+            required_cols = ["NOMBRE(S)", "APELLIDO(S)", "# DE PERSONAS", "CONTACTO: CELULAR"]
+            missing_cols = [col for col in required_cols if col not in df_upload.columns]
+            
+            if missing_cols:
+                st.error(f"❌ Error: Faltan las siguientes columnas en tu archivo: {', '.join(missing_cols)}")
+            else:
+                # --- 2. STAGING & REVIEW ---
+                st.info("💡 Revisa los datos. Puedes editar las celdas directamente o desmarcar la casilla 'Importar' para ignorar una fila.")
+                
+                # Add a control column for the planner to select rows
+                df_upload.insert(0, "Importar", True)
+                
+                # Render the interactive data editor
+                edited_df = st.data_editor(
+                    df_upload,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Importar": st.column_config.CheckboxColumn(
+                            "Importar",
+                            help="Selecciona las filas que deseas subir a la base de datos",
+                            default=True,
+                        )
+                    }
+                )
+                
+                # --- 3. EXECUTION & DATABASE INSERTION ---
+                if st.button("🚀 Confirmar y Subir a Supabase", type="primary"):
+                    with st.spinner('Procesando invitados y generando enlaces seguros...'):
+                        
+                        # Filter down to only the rows marked for import
+                        final_df = edited_df[edited_df["Importar"] == True].copy()
+                        
+                        if final_df.empty:
+                            st.warning("⚠️ No hay filas seleccionadas para importar.")
+                            st.stop()
+
+                        # Initialize a fallback UUID just in case the planner's very first row is malformed
+                        current_party_id = str(uuid.uuid4())
+                        records_to_insert = []
+                        
+                        for index, row in final_df.iterrows():
     
+                            # 1. Evaluate the trigger signal: Is there a value in '# DE PERSONAS'?
+                            raw_personas = row.get("# DE PERSONAS")
+                            
+                            # We use pd.notna() to safely handle NaN/Null values from Excel, 
+                            # and check that it's not just an empty string or zero.
+                            is_lead = False
+                            party_size = None
+
+                            if pd.notna(raw_personas) and str(raw_personas).strip() != "" and str(raw_personas).strip() != "0":
+                                is_lead = True
+                                try:
+                                    # Excel often imports integers as floats ('4.0'). 
+                                    # Casting to float first, then int, safely normalizes it to '4'.
+                                    party_size = int(float(raw_personas))
+                                except ValueError:
+                                    # Fallback in case a planner typed a string like "Cuatro" by accident
+                                    party_size = None
+                                
+                            # 2. State Transition: If this row is a lead, generate a fresh UUID for the new group
+                            if is_lead:
+                                current_party_id = str(uuid.uuid4())
+                            # If is_lead is False, current_party_id remains unchanged, inheriting the ID from the row above
+                            
+                            # 3. Safely extract and clean the phone number
+                            raw_phone = row.get("CONTACTO: CELULAR")
+
+                            # Check if the value is a Pandas NaN, a string "nan", or just empty space
+                            if pd.isna(raw_phone) or str(raw_phone).strip().lower() == "nan" or str(raw_phone).strip() == "":
+                                final_phone = None
+                            else:
+                                # It's a real number. Clean the formatting.
+                                clean_phone = str(raw_phone).replace(" ", "").replace("+", "").replace("-", "").replace(".0", "").strip()
+                                
+                                # One final check to ensure we don't pass an empty string
+                                final_phone = clean_phone if clean_phone else None
+                            # 4. Map to the strict Supabase schema
+                            record = {
+                                "event_id": selected_event_id, 
+                                "party_id": current_party_id, # Uses the newly generated ID, or the inherited one
+                                "first_name": str(row.get("NOMBRE(S)", "")).strip(),
+                                "last_name": str(row.get("APELLIDO(S)", "")).strip(),
+                                "party_size": party_size,
+                                "phone_number": final_phone,
+                                "is_party_lead": is_lead, # Strictly mapped to our boolean evaluation
+                                "rsvp_status": "pending", 
+                                "is_vegan": 0,
+                                "dietary_comments": ""
+                            }
+                            records_to_insert.append(record)
+                        
+                        # Bulk Insert via Supabase
+                        try:
+                            # Passing a list of dictionaries executes a single bulk INSERT query
+                            response = supabase.table("guests").insert(records_to_insert).execute()
+                            
+                            st.success(f"¡Éxito! Se han cargado {len(records_to_insert)} invitados al evento.")
+                            st.balloons()
+                            
+                            # Clear the cache so metrics and charts update instantly
+                            st.cache_data.clear()
+                            # 2. INSTANT UI UPDATE: Force the page to run from the top again
+                            st.rerun()
+                        except Exception as e:
+                            # Catch constraint violations (e.g., duplicate phone numbers within the same event)
+                            st.error(f"❌ Error al subir a la base de datos: {e}")
+                            
+        except Exception as e:
+            st.error(f"❌ No se pudo procesar el archivo. Verifica que no esté corrupto. Detalle: {e}")
+        
     st.divider()
 
     # --- 5. METRICS & CHART ---
@@ -164,6 +293,68 @@ if "user" in st.session_state and st.session_state.user:
         ).properties(height=250).configure_view(strokeOpacity=0).configure_axis(domain=False)
 
         st.altair_chart(base_chart, use_container_width=True)
+
+    # --- ASSUMING df CONTAINS THE GUESTS FOR THE SELECTED EVENT ---
+    # This goes in the section where df is already loaded and confirmed not empty.
+
+    st.divider()
+    st.markdown('<div class="host-header">📤 EXPORTAR DATOS</div>', unsafe_allow_html=True)
+
+    if not df.empty:
+        # 1. Create a copy of the dataframe so we don't alter the live dashboard charts
+        export_df = df.copy()
+
+        # 2. Ensure all requested columns exist (prevents KeyErrors if a new column like 'table_number' is missing)
+        required_export_cols = [
+            "first_name", "last_name", "phone_number", "party_size", 
+            "rsvp_status", "is_vegan", "dietary_comments", "table_number", 
+            "party_id", "is_party_lead"
+        ]
+        for col in required_export_cols:
+            if col not in export_df.columns:
+                export_df[col] = None 
+
+        # 3. The Sorting Magic: 
+        # Group by 'party_id' (alphabetically) AND push 'is_party_lead' (True) to the top of each group
+        export_df = export_df.sort_values(
+            by=["party_id", "is_party_lead"], 
+            ascending=[True, False]
+        )
+
+        # 4. Filter strictly to the columns the planner wants to see
+        final_export_cols = [
+            "first_name", "last_name", "phone_number", "party_size", 
+            "rsvp_status", "is_vegan", "dietary_comments", "table_number"
+        ]
+        export_df = export_df[final_export_cols]
+
+        # 5. Rename columns for a premium B2B UI experience
+        export_df = export_df.rename(columns={
+            "first_name": "Nombre",
+            "last_name": "Apellido",
+            "phone_number": "Teléfono",
+            "party_size": "Total de personas del Grupo",
+            "rsvp_status": "Estatus RSVP",
+            "is_vegan": "Es vegano",
+            "dietary_comments": "Comentarios alimenticios",
+            "table_number": "# Mesa"
+        })
+
+        # 6. Convert to CSV in memory 
+        # CRITICAL: We use 'utf-8-sig' so Excel in Latin America reads accents (á, é, í, ñ) correctly!
+        csv_buffer = io.StringIO()
+        export_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+        csv_data = csv_buffer.getvalue()
+
+        # 7. Render the download button
+        st.download_button(
+            label="📥 Descargar Lista de Invitados (CSV)",
+            data=csv_data,
+            file_name=f"invitados_{selected_event_label}.csv",
+            mime="text/csv",
+            type="primary",
+            help="Descarga la lista ordenada por familias, con el contacto principal primero."
+        )
 
 else:
     st.error("Por favor, inicia sesión para ver tus eventos.")
@@ -280,73 +471,74 @@ if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_w
 # ==========================================
 # RSVP LIVE FEED (SUPABASE + GOOGLE SHEETS MERGE)
 # ==========================================
-st.markdown('<div class="host-header" style="margin-top: 50px;">RESPUESTAS EN TIEMPO REAL</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-title" style="font-size: 2.5rem;">RSVP Feed</div>', unsafe_allow_html=True)
-
-@st.cache_resource
-def init_supabase():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
-
-supabase = init_supabase()
-
-@st.cache_data(ttl=60) 
-def fetch_supabase_intents():
-    if not supabase: return []
-    try:
-        response = supabase.table("guests_data").select("*").order("updated_at", desc=True).execute()
-        return response.data
-    except: return []
-
-guests_intents = fetch_supabase_intents()
-
-if not guests_intents:
-    st.info("No hay respuestas de invitados registradas aún.")
-else:
-    df_intents = pd.DataFrame(guests_intents)
-    df_sheets = df.copy() 
-    
-    # 1. USAMOS EL NOMBRE EXACTO DE TU COLUMNA: 'CONTACTO: CELULAR'
-    if 'CONTACTO: CELULAR' in df_sheets.columns and 'phone_number' in df_intents.columns:
-        df_sheets['match_phone'] = df_sheets['CONTACTO: CELULAR'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
-        df_intents['match_phone'] = df_intents['phone_number'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
-        
-        merged_df = pd.merge(df_intents, df_sheets, on='match_phone', how='left')
-        
-        for _, row in merged_df.iterrows():
-            # 2. USAMOS LOS NOMBRES EXACTOS: 'NOMBRE(S)' y 'APELLIDO(S)'
-            first_name = str(row.get('NOMBRE(S)', ''))
-            last_name = str(row.get('APELLIDO(S)', ''))
-            
-            if first_name == 'nan' or first_name.strip() == '':
-                display_name = f"👤 DESCONOCIDO (📱 {row.get('phone_number', 'Sin número')})" 
-            else:
-                clean_first = first_name.replace('nan', '').strip()
-                clean_last = last_name.replace('nan', '').strip()
-                display_name = f"👤 {clean_first} {clean_last}".strip()
-                
-            intent = str(row.get('intent', 'neutral')).upper()
-            last_msg = str(row.get('last_message', '')).replace('nan', '')
-            
-            color, icon, status_text = "#9E9E9E", "⏳", "PENDIENTE"
-            if intent == "GOING": color, icon, status_text = "#4F8C78", "✅", "CONFIRMADO"
-            elif intent == "NOT GOING": color, icon, status_text = "#BC8F8F", "❌", "CANCELADO"
-                
-            st.markdown(f"""
-            <div style="border: 1px solid #EAEAEA; border-radius: 10px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FAFAFA;">
-                <div>
-                    <div style="font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #4A4A4A; font-weight: 500;">{display_name}</div>
-                    <div style="font-family: 'Montserrat', sans-serif; font-size: 0.75rem; color: #9E9E9E; margin-top: 4px; font-style: italic;">"{last_msg}"</div>
-                </div>
-                <div style="color: {color}; font-weight: bold; font-family: 'Montserrat', sans-serif; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">
-                    {icon} {status_text}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.error("Error conectando las columnas. Revisa los nombres en el código.")
-            
-    if st.button("🔄 Actualizar Feed", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+#st.markdown('<div class="host-header" style="margin-top: 50px;">RESPUESTAS EN TIEMPO REAL</div>', unsafe_allow_html=True)
+#st.markdown('<div class="main-title" style="font-size: 2.5rem;">RSVP Feed</div>', unsafe_allow_html=True)
+#
+#@st.cache_resource
+#def init_supabase():
+#    url = st.secrets["SUPABASE_URL"]
+#    key = st.secrets["SUPABASE_KEY"]
+#    return create_client(url, key)
+#
+#supabase = init_supabase()
+#
+#@st.cache_data(ttl=60) 
+#def fetch_supabase_intents():
+#    if not supabase: return []
+#    try:
+#        response = supabase.table("guests_data").select("*").order("updated_at", desc=True).execute()
+#        return response.data
+#    except: return []
+#
+#guests_intents = fetch_supabase_intents()
+#
+#if not guests_intents:
+#    st.info("No hay respuestas de invitados registradas aún.")
+#else:
+#    df_intents = pd.DataFrame(guests_intents)
+#    df_sheets = df.copy() 
+#    
+#    # 1. USAMOS EL NOMBRE EXACTO DE TU COLUMNA: 'CONTACTO: CELULAR'
+#    if 'CONTACTO: CELULAR' in df_sheets.columns and 'phone_number' in df_intents.columns:
+#        df_sheets['match_phone'] = df_sheets['CONTACTO: CELULAR'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
+#        df_intents['match_phone'] = df_intents['phone_number'].astype(str).str.replace(r'\D', '', regex=True).str[-10:]
+#        
+#        merged_df = pd.merge(df_intents, df_sheets, on='match_phone', how='left')
+#        
+#        for _, row in merged_df.iterrows():
+#            # 2. USAMOS LOS NOMBRES EXACTOS: 'NOMBRE(S)' y 'APELLIDO(S)'
+#            first_name = str(row.get('NOMBRE(S)', ''))
+#            last_name = str(row.get('APELLIDO(S)', ''))
+#            
+#            if first_name == 'nan' or first_name.strip() == '':
+#                display_name = f"👤 DESCONOCIDO (📱 {row.get('phone_number', 'Sin número')})" 
+#            else:
+#                clean_first = first_name.replace('nan', '').strip()
+#                clean_last = last_name.replace('nan', '').strip()
+#                display_name = f"👤 {clean_first} {clean_last}".strip()
+#                
+#            intent = str(row.get('intent', 'neutral')).upper()
+#            last_msg = str(row.get('last_message', '')).replace('nan', '')
+#            
+#            color, icon, status_text = "#9E9E9E", "⏳", "PENDIENTE"
+#            if intent == "GOING": color, icon, status_text = "#4F8C78", "✅", "CONFIRMADO"
+#            elif intent == "NOT GOING": color, icon, status_text = "#BC8F8F", "❌", "CANCELADO"
+#                
+#            st.markdown(f"""
+#            <div style="border: 1px solid #EAEAEA; border-radius: 10px; padding: 15px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; background-color: #FAFAFA;">
+#                <div>
+#                    <div style="font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #4A4A4A; font-weight: 500;">{display_name}</div>
+#                    <div style="font-family: 'Montserrat', sans-serif; font-size: 0.75rem; color: #9E9E9E; margin-top: 4px; font-style: italic;">"{last_msg}"</div>
+#                </div>
+#                <div style="color: {color}; font-weight: bold; font-family: 'Montserrat', sans-serif; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.1em;">
+#                    {icon} {status_text}
+#                </div>
+#            </div>
+#            """, unsafe_allow_html=True)
+#    else:
+#        st.error("Error conectando las columnas. Revisa los nombres en el código.")
+#            
+#    if st.button("🔄 Actualizar Feed", use_container_width=True):
+#        st.cache_data.clear()
+#        st.rerun()
+#
