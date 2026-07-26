@@ -217,6 +217,11 @@ else:
 # APP LOGIC - ROUTING BY URL PARAMETER
 # ==========================================
 
+# --- 1. INITIALIZATION & SECRETS ---
+# Assuming supabase client is already initialized as 'supabase'
+target_event_id = st.secrets["app_config"]["ACTIVE_EVENT_ID"]
+
+
 query_params = st.query_params
 guest_url_token = query_params.get("id")
 
@@ -246,12 +251,21 @@ supabase = init_supabase()
 
 # --- FETCH FROM SUPABASE ---
 @st.cache_data(ttl=60)
-def fetch_party(url_id):
-    # Pulls all guests that share this specific URL ID
-    response = supabase.table("guests").select("*").eq("party_id", url_id).execute()
-    return response.data
+def fetch_party_for_event(party_uuid, event_uuid):
+    try:
+        # Strict dual-filtering: Must match the URL's party AND the Secret's event
+        response = supabase.table("guests") \
+            .select("*") \
+            .eq("party_id", party_uuid) \
+            .eq("event_id", event_uuid) \
+            .order("is_party_lead", desc=True) \
+            .execute()
+            
+        return response.data
+    except Exception as e:
+        return None
 
-party_data = fetch_party(guest_url_token)
+party_data = fetch_party_for_event(guest_url_token, target_event_id)
 
 if not party_data:
     st.markdown('<div class="error-text">No pudimos encontrar tu invitación. Por favor verifica que el enlace sea correcto o comunícate con nosotros.</div>', unsafe_allow_html=True)
