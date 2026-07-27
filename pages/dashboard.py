@@ -12,6 +12,35 @@ from connectors.whatsapp import send_whatsapp_template
 from supabase import create_client, Client
 
 
+# --- DIALOG DEFINITION ---
+@st.dialog("¿Actualizar Estatus RSVP?")
+def confirm_swap_dialog(target_id, payload):
+    st.markdown("""
+    **Has modificado los datos de este invitado.** 
+    
+    Si estás reasignando este lugar a una nueva persona, ¿cómo deseas registrar su estatus de asistencia?
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    if col1.button("⏳ Dejar en Pendiente", use_container_width=True):
+        payload["rsvp_status"] = "pending"
+        execute_db_update(target_id, payload)
+        
+    if col2.button("✅ Marcar como Confirmado", type="primary", use_container_width=True):
+        payload["rsvp_status"] = "confirmed"
+        execute_db_update(target_id, payload)
+
+def execute_db_update(target_id, payload):
+    try:
+        supabase.table("guests").update(payload).eq("guest_id", str(target_id)).execute()
+        st.success("✅ Datos actualizados correctamente.")
+        st.cache_data.clear()
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error al actualizar la base de datos: {e}")
+
+
 # --- 1. SUPABASE INITIALIZATION ---
 #@st.cache_resource
 def init_supabase():
@@ -256,7 +285,134 @@ if "user" in st.session_state and st.session_state.user:
                             
         except Exception as e:
             st.error(f"❌ No se pudo procesar el archivo. Verifica que no esté corrupto. Detalle: {e}")
-        
+
+
+    # --- ASSUMING df CONTAINS THE GUESTS FOR THE SELECTED EVENT ---
+    # Ensure this is placed after your database fetch where 'df' is defined.
+
+    st.divider()
+    st.markdown('<div class="host-header">⚙️ GESTIÓN DE INVITADOS</div>', unsafe_allow_html=True)
+
+    if not df.empty:
+        # Check if the Supabase primary key 'guest_id' exists in the dataframe
+        if 'guest_id' not in df.columns:
+            st.error("Error de arquitectura: La tabla debe incluir la columna de clave primaria 'guest_id'.")
+        else:
+            # Create a clean tabbed interface for the two scenarios
+            tab_add, tab_edit = st.tabs(["➕ Añadir Acompañante a Grupo", "✏️ Reasignar / Editar Invitado"])
+
+            # ==========================================
+            # SCENARIO 1: ADD TO EXISTING PARTY
+            # ==========================================
+            with tab_add:
+                st.write("Selecciona al titular del grupo para añadirle un nuevo acompañante. No requiere número de teléfono.")
+                
+                # Filter only leads to represent the "Party"
+                leads_df = df[df['is_party_lead'] == True]
+                
+                # Create a user-friendly dictionary mapping the visual name to the hidden party_id
+                lead_options = {
+                    f"{row.get('first_name', '')} {row.get('last_name', '')}": row['party_id'] 
+                    for _, row in leads_df.iterrows()
+                }
+                
+                selected_lead_label = st.selectbox(
+                    "Familia / Titular del Grupo:", 
+                    options=list(lead_options.keys()), 
+                    key="add_guest_select"
+                )
+                
+                with st.form("form_add_companion"):
+                    new_first = st.text_input("Nombre(s) del Acompañante")
+                    new_last = st.text_input("Apellido(s) del Acompañante")
+                    
+                    if st.form_submit_button("Añadir Acompañante", type="primary"):
+                        if new_first and new_last:
+                            target_party_id = lead_options[selected_lead_label]
+                            
+                            # Build the dependent record matching your schema
+                            new_record = {
+                                "event_id": selected_event_id,
+                                "party_id": target_party_id,
+                                "first_name": new_first.strip(),
+                                "last_name": new_last.strip(),
+                                "phone_number": None, # Dependents bypass the phone requirement
+                                "is_party_lead": False,
+                                "party_size": None,
+                                "estatus": "pending",
+                                "is_vegan": 0,
+                                "dietary_comments": ""
+                            }
+                            
+                            try:
+                                # 1. Insert the new guest
+                                supabase.table("guests").insert(new_record).execute()
+                                
+                                # 2. Update the Lead's party_size metric by +1
+                                lead_row = leads_df[leads_df['party_id'] == target_party_id].iloc[0]
+                                if pd.notna(lead_row.get('party_size')):
+                                    new_size = int(lead_row['party_size']) + 1
+                                    supabase.table("guests").update({"party_size": new_size}) \
+                                        .eq("party_id", target_party_id) \
+                                        .eq("is_party_lead", True).execute()
+                                    
+                                st.success(f"✅ {new_first} añadido correctamente al grupo.")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al añadir a la base de datos: {e}")
+                        else:
+                            st.warning("⚠️ Por favor, ingresa el nombre y apellido.")
+
+            # ==========================================
+            # SCENARIO 2: SWAP/EDIT GUEST
+            # ==========================================
+            with tab_edit:
+                st.write("Modifica los datos de un invitado (Ej: Cambio de nombre si alguien cede su lugar).")
+                
+                # Create a dictionary for ALL guests mapping their visual name to their unique database row ID
+                guest_options = {}
+                for _, row in df.iterrows():
+                    role = "Titular" if row.get("is_party_lead") else "Acompañante"
+                    label = f"{row.get('first_name', '')} {row.get('last_name', '')} ({role})"
+                    guest_options[label] = row['guest_id']
+                    
+                selected_guest_label = st.selectbox(
+                    "Selecciona al invitado a modificar:", 
+                    options=list(guest_options.keys()), 
+                    key="edit_guest_select"
+                )
+                
+                if selected_guest_label:
+                    target_guest_id = guest_options[selected_guest_label]
+                    current_guest_data = df[df['guest_id'] == target_guest_id].iloc[0]
+                    
+                    with st.form("form_edit_guest"):
+                        edit_first = st.text_input("Nombre(s)", value=str(current_guest_data.get('first_name', '')))
+                        edit_last = st.text_input("Apellido(s)", value=str(current_guest_data.get('last_name', '')))
+                        
+                        # Conditionally show the phone field ONLY if they are the Lead guest
+                        new_phone = None
+                        if current_guest_data.get('is_party_lead'):
+                            phone_val = current_guest_data.get('phone_number')
+                            if pd.isna(phone_val) or str(phone_val) == "None": 
+                                phone_val = ""
+                            new_phone = st.text_input("Teléfono (Solo números)", value=str(phone_val))
+                        
+                        # The Submit Button intercepts the flow
+                        if st.form_submit_button("Guardar Cambios", type="primary"):
+                            # Build the dynamic payload with the new names
+                            update_payload = {
+                                "first_name": edit_first.strip(),
+                                "last_name": edit_last.strip()
+                            }
+                            
+                            # Only update the phone if a new valid string was provided for a lead
+                            if current_guest_data.get('is_party_lead') and new_phone:
+                                update_payload["phone_number"] = new_phone.strip()
+                                
+                            # Trigger the modal popup instead of saving directly
+                            confirm_swap_dialog(target_guest_id, update_payload)
     st.divider()
 
     # --- 5. METRICS & CHART ---
@@ -362,62 +518,62 @@ else:
 # ==========================================
 # GESTIÓN DE ENVÍOS (DASHBOARD SECTION)
 # ==========================================
-
-# 1. Initialize session state for editing
-if "editing_row" not in st.session_state:
-    st.session_state.editing_row = None
-
-st.markdown('<div style="text-align:center; color:#9E9E9E; font-size:0.7rem; letter-spacing:0.2em; margin-top:50px;">ENVIO DE INVITACIONES AGENDADAS</div>', unsafe_allow_html=True)
-
-# 2. Load the current schedule from your JSON file
-display_data = load_schedule()
-
-# 3. Iterate and build the rows
-for i, item in enumerate(display_data):
-    dt_obj = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M")
-    
-    # Columns for: Icon, Date Text, Status
-    c_btn, c_date, c_status = st.columns([0.5, 3, 1])
-    
-    with c_btn:
-        # Toggle edit mode for this specific row
-        if st.button("✏️", key=f"edit_btn_{i}"):
-            st.session_state.editing_row = i
-            st.rerun()
-
-    with c_date:
-        if st.session_state.editing_row == i:
-            # --- EDIT MODE ---
-            new_date = st.date_input("Nueva fecha", value=dt_obj.date(), key=f"picker_{i}", label_visibility="collapsed")
-            col_save, col_cancel = st.columns(2)
-            
-            if col_save.button("💾", key=f"save_{i}"):
-                # Update logic: keep original time, update date
-                new_full_dt = datetime.combine(new_date, dt_obj.time())
-                new_status = "ENVIADO" if new_full_dt < datetime.now() else "AGENDADO"
-                
-                # Overwrite and save
-                display_data[i] = {
-                    "Date": new_full_dt.strftime("%Y-%m-%d %H:%M"),
-                    "Status": new_status
-                }
-                save_schedule(display_data)
-                st.session_state.editing_row = None
-                st.rerun()
-                
-            if col_cancel.button("❌", key=f"cancel_{i}"):
-                st.session_state.editing_row = None
-                st.rerun()
-        else:
-            # --- DISPLAY MODE ---
-            display_str = dt_obj.strftime("%d de %B, %Y")
-            st.markdown(f'<div style="font-family:Playfair Display; font-size:1.1rem; color:#4A4A4A; padding:5px 0;">{display_str}</div>', unsafe_allow_html=True)
-
-    with c_status:
-        badge = "sent-badge" if item["Status"] == "ENVIADO" else "scheduled-badge"
-        st.markdown(f'<div style="padding:10px 0;"><span class="{badge}">{item["Status"]}</span></div>', unsafe_allow_html=True)
-    
-    st.divider()
+#
+## 1. Initialize session state for editing
+#if "editing_row" not in st.session_state:
+#    st.session_state.editing_row = None
+#
+#st.markdown('<div style="text-align:center; color:#9E9E9E; font-size:0.7rem; letter-spacing:0.2em; margin-top:50px;">ENVIO DE INVITACIONES AGENDADAS</div>', unsafe_allow_html=True)
+#
+## 2. Load the current schedule from your JSON file
+#display_data = load_schedule()
+#
+## 3. Iterate and build the rows
+#for i, item in enumerate(display_data):
+#    dt_obj = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M")
+#    
+#    # Columns for: Icon, Date Text, Status
+#    c_btn, c_date, c_status = st.columns([0.5, 3, 1])
+#    
+#    with c_btn:
+#        # Toggle edit mode for this specific row
+#        if st.button("✏️", key=f"edit_btn_{i}"):
+#            st.session_state.editing_row = i
+#            st.rerun()
+#
+#    with c_date:
+#        if st.session_state.editing_row == i:
+#            # --- EDIT MODE ---
+#            new_date = st.date_input("Nueva fecha", value=dt_obj.date(), key=f"picker_{i}", label_visibility="collapsed")
+#            col_save, col_cancel = st.columns(2)
+#            
+#            if col_save.button("💾", key=f"save_{i}"):
+#                # Update logic: keep original time, update date
+#                new_full_dt = datetime.combine(new_date, dt_obj.time())
+#                new_status = "ENVIADO" if new_full_dt < datetime.now() else "AGENDADO"
+#                
+#                # Overwrite and save
+#                display_data[i] = {
+#                    "Date": new_full_dt.strftime("%Y-%m-%d %H:%M"),
+#                    "Status": new_status
+#                }
+#                save_schedule(display_data)
+#                st.session_state.editing_row = None
+#                st.rerun()
+#                
+#            if col_cancel.button("❌", key=f"cancel_{i}"):
+#                st.session_state.editing_row = None
+#                st.rerun()
+#        else:
+#            # --- DISPLAY MODE ---
+#            display_str = dt_obj.strftime("%d de %B, %Y")
+#            st.markdown(f'<div style="font-family:Playfair Display; font-size:1.1rem; color:#4A4A4A; padding:5px 0;">{display_str}</div>', unsafe_allow_html=True)
+#
+#    with c_status:
+#        badge = "sent-badge" if item["Status"] == "ENVIADO" else "scheduled-badge"
+#        st.markdown(f'<div style="padding:10px 0;"><span class="{badge}">{item["Status"]}</span></div>', unsafe_allow_html=True)
+#    
+#    st.divider()
 
 # --- 8. ACTIONS ---
 st.write("")
@@ -425,48 +581,113 @@ template_url = st.secrets["template_drive_url"]
 st.markdown(f'<a href="{template_url}" target="_blank" style="text-decoration: none;"><div style="text-align: center; border: 1px solid #EAEAEA; border-radius: 15px; padding: 15px; color: #4A4A4A; font-family: Playfair Display; font-size: 1.2rem;">📥 Descargar plantilla de invitados</div></a>', unsafe_allow_html=True)
 
 st.write("")
-if st.button("🚀 Prueba de Envío (WhatsApp)", type="primary", use_container_width=True):
-    # Ensure this URL is publicly accessible and points directly to the file
-    pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1779163670/invitacion_boda_Clara_Esperanza_Pulido_de_Castillo_bujf5x.pdf" 
-    guest_name = "Clara"
 
-    wedding_components = [
-        {
-            "type": "header",
-            "parameters": [
-                {
-                    "type": "document",
-                    "document": {
-                        "link": pdf_url,
-                        "filename": "Invitacion_Boda.pdf"
-                    }
-                }
-            ]
-        },
-        {
-            "type": "body",
-            "parameters": [
-                {
-                    "type": "text",
-                    "parameter_name": "nombre_invitado", # Restored!
-                    "text": guest_name
-                }
-            ]
-        }
-    ]
+
+# --- 1. THE MODAL DIALOG DEFINITION ---
+@st.dialog("Titulares Pendientes de Envío", width="large")
+def show_pending_leads_dialog(df):
+    st.markdown("### 📋 Resumen de envíos")
+    st.write("Los siguientes titulares de grupo están en fila para recibir la plantilla de WhatsApp:")
     
-    # Sending the actual invitation template
-    success, error_msg = send_whatsapp_template(
-        recipient_phone="523118765918", 
-        template_name="invitacion_boda", 
-        language_code="en", 
-        components=wedding_components
+    # Filter for leads who are pending and actually have a phone number
+    pending_leads = df[(df['is_party_lead'] == True) & 
+                       (df['rsvp_status'] == 'pending') & 
+                       (df['phone_number'].notna()) & 
+                       (df['phone_number'] != "")]
+    
+    if pending_leads.empty:
+        st.info("No hay titulares de grupo pendientes con número de teléfono registrado.")
+        return
+
+    # Show the list so the planner can visually verify the queue before execution
+    st.dataframe(
+        pending_leads[['first_name', 'last_name', 'phone_number', 'party_size']],
+        hide_index=True,
+        use_container_width=True
     )
     
-    if success:
-        st.toast("✅ Mensaje enviado correctamente")
-    else:
-        st.error(f"❌ Error: {error_msg}")
+    st.write(f"**Total a enviar:** {len(pending_leads)} mensajes.")
+    
+    # Form to prevent accidental double-clicks
+    with st.form("bulk_send_form"):
+        st.warning("⚠️ Asegúrate de que la plantilla seleccionada esté aprobada en Meta.")
+        submit = st.form_submit_button("🚀 Enviar a Todos los Pendientes", type="primary", use_container_width=True)
+        
+        if submit:
+            success_count = 0
+            error_list = []
+            
+            # Loop through each pending lead and trigger the Meta API
+            for _, row in pending_leads.iterrows():
+                guest_name = str(row.get('first_name', '')).strip()
+                phone = str(row.get('phone_number', ''))
+                party_uuid = str(row.get('party_id', ''))
+                
+                # Dynamically generate the capability URL for this specific family
+                rsvp_link = f"https://your-app.streamlit.app/rsvp?id={party_uuid}"
+                
+                pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1779163670/invitacion_boda_Clara_Esperanza_Pulido_de_Castillo_bujf5x.pdf" 
+                
+                wedding_components = [
+                    {
+                        "type": "header",
+                        "parameters": [
+                            {
+                                "type": "document",
+                                "document": {
+                                    "link": pdf_url,
+                                    "filename": "Invitacion_Boda.pdf"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {
+                                "type": "text",
+                                "parameter_name": "nombre_invitado", 
+                                "text": guest_name
+                            }
+                        ]
+                    }
+                ]
+                
+                # Execute the API call
+                success, error_msg = send_whatsapp_template(
+                    recipient_phone=phone, 
+                    template_name="invitacion_boda", 
+                    language_code="es", 
+                    components=wedding_components
+                )
+                
+                if success:
+                    success_count += 1
+                    # Execute a quick Supabase update to mark as notified
+                    try:
+                        supabase.table("guests").update({"rsvp_status": "notified"}).eq("party_id", party_uuid).execute()
+                    except Exception as db_err:
+                        error_list.append(f"{guest_name} - DB Update Error: {db_err}")
+                else:
+                    error_list.append(f"{guest_name} ({phone}): {error_msg}")
+                    
+            if success_count > 0:
+                st.success(f"✅ Se enviaron {success_count} mensajes con éxito.")
+                st.cache_data.clear() # Clear cache so the main dashboard updates the pending count
+            
+            if error_list:
+                st.error("❌ Hubo errores con los siguientes envíos:")
+                for err in error_list:
+                    st.write(err)
+
+# --- 2. THE TRIGGER IN YOUR DASHBOARD ---
+# Assuming 'df' is your loaded Pandas dataframe for the currently selected event
+st.divider()
+st.markdown('<div class="host-header">📡 COMUNICACIÓN WABA</div>', unsafe_allow_html=True)
+
+if st.button("🚀 Iniciar Envío de Invitaciones", type="primary"):
+    show_pending_leads_dialog(df)
+
 #Here it goes the code for generating a list based on the retrieved intents from the supabase database, extpected <USER>: <INTENT>
 # ==========================================
 # RSVP LIVE FEED (SUPABASE + GOOGLE SHEETS MERGE)
