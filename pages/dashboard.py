@@ -339,7 +339,7 @@ if "user" in st.session_state and st.session_state.user:
                                 "phone_number": None, # Dependents bypass the phone requirement
                                 "is_party_lead": False,
                                 "party_size": None,
-                                "estatus": "pending",
+                                "rsvp_status": "pending",
                                 "is_vegan": 0,
                                 "dietary_comments": ""
                             }
