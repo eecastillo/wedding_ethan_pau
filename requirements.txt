@@ -3,3 +3,5 @@ gspread
 pandas
 google-auth
 streamlit-extras
+supabase
+openpyxl
