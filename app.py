@@ -506,7 +506,7 @@ else:
                         # Push update to Supabase
                         supabase.table("guests").update(update_payload).eq("guest_id", db_id).execute()
 
-                    fetch_party.clear() # Clear the cache to reflect updates
+                    fetch_party_for_event.clear() # Clear the cache to reflect updates
                     st.success("¡Tu confirmación ha sido guardada exitosamente!")
                     rain(emoji="🕊️", font_size=40, falling_speed=5, animation_length=2)
                     
@@ -532,7 +532,7 @@ else:
                         
                         supabase.table("guests").update(update_payload).eq("guest_id", db_id).execute()
                     
-                    fetch_party.clear() # Clear the cache to reflect updates
+                    fetch_party_for_event.clear() # Clear the cache to reflect updates
                     st.info("Gracias por informarnos. Lamentamos que no puedan asistir.")
 
 # Custom Footer
