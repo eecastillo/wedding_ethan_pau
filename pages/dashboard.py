@@ -582,6 +582,15 @@ st.markdown(f'<a href="{template_url}" target="_blank" style="text-decoration: n
 
 st.write("")
 
+def register_conversation(guest_id: str, event_id: str, phone: str):
+    """Inserts or updates the routing table so the FastAPI router knows this number."""
+    payload = {
+        "guest_id": guest_id,
+        "event_id": event_id,
+        "phone_number": phone,
+        "last_notified_at": "now()"
+    }
+    supabase.table("conversations").upsert(payload, on_conflict="guest_id").execute()
 
 # --- 1. THE MODAL DIALOG DEFINITION ---
 @st.dialog("Titulares Pendientes de Envío", width="large")
@@ -622,6 +631,8 @@ def show_pending_leads_dialog(df):
                 guest_name = str(row.get('first_name', '')).strip()
                 phone = str(row.get('phone_number', ''))
                 party_uuid = str(row.get('party_id', ''))
+                guest_id = row.get('guest_id','')
+                event_id = row.get('event_id','')
                 
                 # Dynamically generate the capability URL for this specific family
                 rsvp_link = f"https://your-app.streamlit.app/rsvp?id={party_uuid}"
@@ -657,11 +668,12 @@ def show_pending_leads_dialog(df):
                 success, error_msg = send_whatsapp_template(
                     recipient_phone=phone, 
                     template_name="invitacion_boda", 
-                    language_code="es", 
+                    language_code="en", 
                     components=wedding_components
                 )
                 
                 if success:
+                    register_conversation(guest_id, event_id, phone)
                     success_count += 1
                     # Execute a quick Supabase update to mark as notified
                     try:
@@ -684,6 +696,8 @@ def show_pending_leads_dialog(df):
 # Assuming 'df' is your loaded Pandas dataframe for the currently selected event
 st.divider()
 st.markdown('<div class="host-header">📡 COMUNICACIÓN WABA</div>', unsafe_allow_html=True)
+
+
 
 if st.button("🚀 Iniciar Envío de Invitaciones", type="primary"):
     show_pending_leads_dialog(df)
