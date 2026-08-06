@@ -602,7 +602,9 @@ def show_pending_leads_dialog(df):
     pending_leads = df[(df['is_party_lead'] == True) & 
                        (df['rsvp_status'] == 'pending') & 
                        (df['phone_number'].notna()) & 
-                       (df['phone_number'] != "")]
+                       (df['phone_number'] != "") &
+                       (df['invitation_pdf_url'].notna()) & 
+                       (df['invitation_pdf_url'] != "")]
     
     if pending_leads.empty:
         st.info("No hay titulares de grupo pendientes con número de teléfono registrado.")
@@ -610,7 +612,7 @@ def show_pending_leads_dialog(df):
 
     # Show the list so the planner can visually verify the queue before execution
     st.dataframe(
-        pending_leads[['first_name', 'last_name', 'phone_number', 'party_size']],
+        pending_leads[['first_name', 'last_name', 'phone_number', 'party_size', 'invitation_pdf_url']],
         hide_index=True,
         use_container_width=True
     )
@@ -637,7 +639,7 @@ def show_pending_leads_dialog(df):
                 # Dynamically generate the capability URL for this specific family
                 rsvp_link = f"https://your-app.streamlit.app/rsvp?id={party_uuid}"
                 
-                pdf_url = "https://res.cloudinary.com/dnsixfadf/image/upload/v1779163670/invitacion_boda_Clara_Esperanza_Pulido_de_Castillo_bujf5x.pdf" 
+                pdf_url = str(row.get('invitation_pdf_url', '')).strip()
                 
                 wedding_components = [
                     {
@@ -667,7 +669,7 @@ def show_pending_leads_dialog(df):
                 # Execute the API call
                 success, error_msg = send_whatsapp_template(
                     recipient_phone=phone, 
-                    template_name="invitacion_boda", 
+                    template_name="invitacion_boda_sergio_montse", 
                     language_code="en", 
                     components=wedding_components
                 )
