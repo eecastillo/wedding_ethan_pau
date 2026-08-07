@@ -428,18 +428,20 @@ if "user" in st.session_state and st.session_state.user:
         
         confirmed_count = len(df[df[status_col].str.contains("confirmed", case=False, na=False)])
         declined_count = len(df[df[status_col].str.contains("canceled", case=False, na=False)])
-        pending_count = len(df[~df[status_col].str.contains("confirmed|canceled", case=False, na=False)])
+        notified_count = len(df[df[status_col].str.contains("notified", case=False, na=False)])
+        pending_count = len(df[df[status_col].str.contains("pending", case=False, na=False)])
 
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.markdown(f'<div class="metric-container"><div class="metric-value">{confirmed_count}</div><div class="metric-label">Confirmados</div></div>', unsafe_allow_html=True)
         m2.markdown(f'<div class="metric-container"><div class="metric-value">{declined_count}</div><div class="metric-label">Cancelados</div></div>', unsafe_allow_html=True)
-        m3.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pendientes</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="metric-container"><div class="metric-value">{notified_count}</div><div class="metric-label">Notificados</div></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="metric-container"><div class="metric-value">{pending_count}</div><div class="metric-label">Pendientes</div></div>', unsafe_allow_html=True)
 
         chart_data = pd.DataFrame({
-            'Estado': ['Confirmados', 'Cancelados', 'Pendientes'],
-            'Personas': [confirmed_count, declined_count, pending_count]
+            'Estado': ['Confirmados', 'Cancelados', 'Notificados', 'Pendientes'],
+            'Personas': [confirmed_count, declined_count, notified_count, pending_count]
         })
-        color_scale = alt.Scale(domain=['Confirmados', 'Cancelados', 'Pendientes'], range=['#4F8C78', '#BC8F8F', '#D3D3D3'])
+        color_scale = alt.Scale(domain=['Confirmados', 'Cancelados', 'Notificados', 'Pendientes'], range=['#4F8C78', '#BC8F8F', '#FFD700', '#D3D3D3'])
 
         base_chart = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8).encode(
             x=alt.X('Estado:N', sort=None, title=None, axis=alt.Axis(labelAngle=0, labelFontSize=11, labelColor='#9E9E9E')),
@@ -669,7 +671,7 @@ def show_pending_leads_dialog(df):
                 # Execute the API call
                 success, error_msg = send_whatsapp_template(
                     recipient_phone=phone, 
-                    template_name="invitacion_boda_sergio_montse", 
+                    template_name="invitacion_boda_sergio_montse_", 
                     language_code="en", 
                     components=wedding_components
                 )
