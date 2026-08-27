@@ -598,7 +598,7 @@ def register_conversation(guest_id: str, event_id: str, phone: str):
 @st.dialog("Titulares Pendientes de Envío", width="large")
 def show_pending_leads_dialog(df):
     st.markdown("### 📋 Resumen de envíos")
-    st.write("Los siguientes titulares de grupo están en fila para recibir la plantilla de WhatsApp:")
+    st.write("Selecciona los titulares de grupo que recibirán la plantilla de WhatsApp:")
     
     # Filter for leads who are pending and actually have a phone number
     pending_leads = df[(df['is_party_lead'] == True) & 
@@ -612,26 +612,42 @@ def show_pending_leads_dialog(df):
         st.info("No hay titulares de grupo pendientes con número de teléfono registrado.")
         return
 
-    # Show the list so the planner can visually verify the queue before execution
-    st.dataframe(
-        pending_leads[['first_name', 'last_name', 'phone_number', 'party_size', 'invitation_pdf_url']],
+    # Create a display copy and insert a Checkbox column at the start
+    editor_df = pending_leads[['first_name', 'last_name', 'phone_number', 'party_size', 'invitation_pdf_url']].copy()
+    editor_df.insert(0, 'Enviar', True) # 'Enviar' is True by default for all rows
+
+    # Render the interactive data editor
+    edited_df = st.data_editor(
+        editor_df,
         hide_index=True,
-        use_container_width=True
+        use_container_width=True,
+        # Disable editing on the guest data so they can ONLY toggle the checkbox
+        disabled=['first_name', 'last_name', 'phone_number', 'party_size', 'invitation_pdf_url']
     )
     
-    st.write(f"**Total a enviar:** {len(pending_leads)} mensajes.")
+    # Filter the original pending_leads based on what was left checked in the UI
+    selected_leads = pending_leads[edited_df['Enviar'] == True]
+    
+    st.write(f"**Total seleccionado para enviar:** {len(selected_leads)} de {len(pending_leads)} mensajes.")
     
     # Form to prevent accidental double-clicks
     with st.form("bulk_send_form"):
         st.warning("⚠️ Asegúrate de que la plantilla seleccionada esté aprobada en Meta.")
-        submit = st.form_submit_button("🚀 Enviar a Todos los Pendientes", type="primary", use_container_width=True)
+        
+        # Disable the submit button if the user unchecks everything
+        submit = st.form_submit_button(
+            f"🚀 Enviar a {len(selected_leads)} Invitados", 
+            type="primary", 
+            use_container_width=True,
+            disabled=len(selected_leads) == 0 
+        )
         
         if submit:
             success_count = 0
             error_list = []
             
-            # Loop through each pending lead and trigger the Meta API
-            for _, row in pending_leads.iterrows():
+            # Loop through ONLY the selected leads
+            for _, row in selected_leads.iterrows():
                 guest_name = str(row.get('first_name', '')).strip()
                 phone = str(row.get('phone_number', ''))
                 party_uuid = str(row.get('party_id', ''))
@@ -689,13 +705,14 @@ def show_pending_leads_dialog(df):
                     
             if success_count > 0:
                 st.success(f"✅ Se enviaron {success_count} mensajes con éxito.")
-                st.cache_data.clear() # Clear cache so the main dashboard updates the pending count
+                st.cache_data.clear() 
+                st.rerun() # Force a rerun so the dialog and main UI update immediately
             
             if error_list:
                 st.error("❌ Hubo errores con los siguientes envíos:")
                 for err in error_list:
                     st.write(err)
-
+                    
 # --- 2. THE TRIGGER IN YOUR DASHBOARD ---
 # Assuming 'df' is your loaded Pandas dataframe for the currently selected event
 st.divider()
