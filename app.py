@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 import uuid
 
 # Define your deadline: Year, Month, Day, Hour, Minute
-DEADLINE = datetime(2026, 8, 26, 20, 56, 0)
+DEADLINE = datetime(2026, 9, 26, 20, 56, 0)
 
 def format_names_spanish(names):
     """Formats a list of names into a Spanish string: 'A, B y C' or 'A e Isabel'"""
